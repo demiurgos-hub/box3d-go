@@ -82,8 +82,11 @@ work. No solver parity or workload qualification is inferred from unit tests.
 
 `WorldID.StepMotion` subdivides a requested duration, predicts both moving bodies,
 and uses the ordinary solver for every contact impulse. Admission recomputes
-semi-implicit acceleration after reducing time and budgets further closure against
-the pair's remaining penetration allowance. Its casts target geometric contact,
+semi-implicit acceleration after reducing time and bounds near-contact predicted
+free motion to one quarter of the speculative distance. It does not shrink this
+time budget toward zero as penetration approaches its allowed bound: a finite
+solver step is necessary for contact recovery. Actual-path and endpoint checks
+still enforce the unchanged penetration bound. Its casts target geometric contact,
 using contact distance only as an early stopping accuracy; unlike public motion
 queries, they do not require intersection with an inflated tolerance band.
 Actual solver trajectories are
@@ -215,6 +218,13 @@ impulse, including scalar, overflow and wide/SIMD kernels, so force reporting an
 restitution do not multiply with the relaxation count. A rounding-sized time
 remainder is integrated in the preceding admitted step instead of a nanosecond
 step that would rescale cached impulses and interrupt sleeping.
+
+A regression reproduces a falling jointed grid that previously spent thousands
+of microsteps near 9.97mm penetration. It preserves the server's float32 substep
+endpoint arithmetic; four identical literal deltas hid that failure. The fixed
+admission keeps the existing 5mm predicted-motion cap, 240Hz maximum delta and
+actual geometric validation. Work-limit errors retain the last limiting pair's
+depth, bound and predicted closure for diagnosis; no query tolerance is changed.
 
 Actual path validation refines ambiguous leaf intervals against fresh geometry,
 with an explicit bounded refinement count (default 8,192). It does not treat a

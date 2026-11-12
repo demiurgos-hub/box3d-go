@@ -100,6 +100,12 @@ type motionStepScratch struct {
 	contacts     []int32
 	contactMarks []uint32
 	contactEpoch uint32
+	limiting     motionAdmissionLimit
+}
+type motionAdmissionLimit struct {
+	a, b                  int32
+	depth, bound, closing float32
+	fraction              float32
 }
 type motionPair struct {
 	a, b, childA, triangleA, childB, triangleB int32
@@ -154,7 +160,7 @@ func (id WorldID) StepMotion(dt float32, options MotionStepOptions, observe func
 	elapsed := float64(0)
 	for remaining > 0 {
 		if result.Microsteps >= options.MaxMicrosteps {
-			return result, ErrMotionStepLimit
+			return result, fmt.Errorf("%w: elapsed=%g remaining=%g last limiting pair=%+v", ErrMotionStepLimit, result.Elapsed, remaining, scratch.limiting)
 		}
 		for _, f := range forces {
 			if !f.id.IsValid() {
@@ -340,7 +346,7 @@ func motionStepFraction(w *world, bodies []motionForce, dt, tolerance, limit flo
 		}
 	}
 	scratch.moving = moving
-	return motionEvaluatePairs(w, moving, dt, tolerance, initialDepths, initial, limit, false, nil)
+	return motionEvaluatePairs(w, moving, dt, tolerance, initialDepths, initial, limit, false, nil, scratch)
 }
 
 func motionValidatePaths(w *world, sample MotionStepSample, tolerance, limit float32, initialDepths map[motionPair]float32, budget *int, scratch *motionStepScratch) (int, error) {
@@ -361,11 +367,11 @@ func motionValidatePaths(w *world, sample MotionStepSample, tolerance, limit flo
 		}
 	}
 	scratch.moving = moving
-	_, pairs, err := motionEvaluatePairs(w, moving, sample.Delta, tolerance, initialDepths, false, limit, true, budget)
+	_, pairs, err := motionEvaluatePairs(w, moving, sample.Delta, tolerance, initialDepths, false, limit, true, budget, scratch)
 	return pairs, err
 }
 
-func motionEvaluatePairs(w *world, moving []motionSolverShape, dt, tolerance float32, initialDepths map[motionPair]float32, initial bool, limit float32, validate bool, budget *int) (float32, int, error) {
+func motionEvaluatePairs(w *world, moving []motionSolverShape, dt, tolerance float32, initialDepths map[motionPair]float32, initial bool, limit float32, validate bool, budget *int, scratch *motionStepScratch) (float32, int, error) {
 	slices.SortFunc(moving, func(a, b motionSolverShape) int {
 		if a.bounds.LowerBound.X != b.bounds.LowerBound.X {
 			return cmp.Compare(a.bounds.LowerBound.X, b.bounds.LowerBound.X)
@@ -434,16 +440,20 @@ func motionEvaluatePairs(w *world, moving []motionSolverShape, dt, tolerance flo
 				return nil
 			}
 			travel := Length(velocity) + float32(ma.angle*ra) + float32(mb.angle*rb)
+			candidate := float32(1)
 			if r.Fraction*travel > 0.25*SpeculativeDistance() {
-				fraction = MinFloat(fraction, r.Fraction)
+				candidate = r.Fraction
 			} else if closing > 0 {
-				budget := MinFloat(0.25*SpeculativeDistance(), .5*(bound-r.Depth))
-				if budget <= 0 {
-					// An initial overlap at its inherited bound must still get a
-					// solver opportunity to recover; postvalidation forbids growth.
-					budget = .01 * limit
-				}
-				fraction = MinFloat(fraction, budget/closing)
+				// Admission bounds free motion, not the solver's resulting
+				// penetration. Scaling time by remaining penetration headroom
+				// approaches zero exactly where contacts need a finite solve to
+				// recover. Actual-path and endpoint guards still enforce bound.
+				budget := 0.25 * SpeculativeDistance()
+				candidate = budget / closing
+			}
+			if candidate < fraction {
+				fraction = candidate
+				scratch.limiting = motionAdmissionLimit{a.shape.id, z.shape.id, r.Depth, bound, closing, candidate}
 			}
 			return nil
 		})
