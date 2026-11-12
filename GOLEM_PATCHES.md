@@ -8,6 +8,12 @@ or implement character pushing through manual impulses.
 
 ## Additive query extensions
 
+- `WorldID.PreciseCastShape` uses geometric conservative advancement with a
+  caller-selected distance tolerance, independent of the solver's rest gap.
+  This fixes the approximately 5 mm rounded-shape sweep bias for Golem queries
+  without changing upstream `ShapeCast`. Nonconvergence is an explicit failure.
+  Focused regressions cover capsule/box distance and sphere casts at origin,
+  ±768, ±2304 and near the ±4096 metre coordinate envelope.
 - `ShapeID.ClosestPointFeature`: bounded closest points on primitive solids,
   triangle meshes, heightfields (including holes), and baked compounds. Results
   include child/triangle/local feature identity and user material identity;
