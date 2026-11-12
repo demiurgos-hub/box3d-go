@@ -38,6 +38,7 @@ type speculativeCCDScratch struct {
 	kinematics    map[int32]kinematicCCDTarget
 	kinematicTree DynamicTree
 	kinematicIDs  []int32
+	bodyIDs       []int32
 }
 
 // Kinematic poses are independent of contact impulses. Retaining their sweeps
@@ -135,11 +136,18 @@ func prepareSpeculativeCCD(w *world, dt float32, substeps int) {
 	}
 	motionInvalidateMovingMeshCaches(w)
 	fastCount := 0
-	for i := range w.bodies {
-		body := &w.bodies[i]
-		if body.id == NullIndex || body.typ == StaticBody || body.setIndex == disabledSet {
+	scratch.bodyIDs = scratch.bodyIDs[:0]
+	for setID := range w.solverSets {
+		if setID == staticSet || setID == disabledSet {
 			continue
 		}
+		for _, sim := range w.solverSets[setID].bodySims {
+			scratch.bodyIDs = append(scratch.bodyIDs, sim.bodyId)
+		}
+	}
+	slices.Sort(scratch.bodyIDs)
+	for _, id := range scratch.bodyIDs {
+		body := &w.bodies[id]
 		sweep := predictiveBodySweep(w, body, dt, substeps)
 		chord := 2 * Length(InvMulQuat(sweep.Q1, sweep.Q2).V)
 		for index := body.headShapeId; index != NullIndex; index = w.shapes[index].nextShapeId {

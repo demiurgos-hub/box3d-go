@@ -50,14 +50,15 @@ func (q *toiQueue) Push(v any)   { *q = append(*q, v.(toiEvent)) }
 func (q *toiQueue) Pop() any     { n := len(*q) - 1; v := (*q)[n]; *q = (*q)[:n]; return v }
 
 type toiContinuationState struct {
-	enabled        bool
-	err            error
-	stats          TOIContinuationStats
-	samples        []MotionStepSample
-	handled        map[int32]bool
-	engine         *toiEngine
-	observing      bool
-	solvedContacts map[int32]uint32
+	enabled          bool
+	err              error
+	stats            TOIContinuationStats
+	samples          []MotionStepSample
+	handled          map[int32]bool
+	noEligibleMotion bool
+	engine           *toiEngine
+	observing        bool
+	solvedContacts   map[int32]uint32
 }
 type toiEngine struct {
 	w                                    *world
@@ -126,6 +127,7 @@ func resetTOIContinuation(w *world, substeps int) bool {
 	s.stats = TOIContinuationStats{}
 	s.samples = nil
 	s.handled = nil
+	s.noEligibleMotion = false
 	s.engine = nil
 	clear(s.solvedContacts)
 	if s.enabled && substeps != 1 {
@@ -135,7 +137,7 @@ func resetTOIContinuation(w *world, substeps int) bool {
 	return true
 }
 func toiHandled(w *world, bodyID int32) bool {
-	return w.toiContinuation.enabled && w.toiContinuation.handled[bodyID]
+	return w.toiContinuation.enabled && (w.toiContinuation.noEligibleMotion || w.toiContinuation.handled[bodyID])
 }
 
 func (e *toiEngine) body(id int32) *toiBody {
@@ -208,10 +210,12 @@ func toiPairFast(w *world, a, b *shape, sa, sb Sweep) bool {
 }
 func (e *toiEngine) shapeFast(s *shape) bool {
 	b := e.body(s.bodyId)
-	sw := b.sweepAt(b.fraction)
+	return toiShapeFast(s, b.sweepAt(b.fraction), e.w.bodies[s.bodyId].safetyFactor)
+}
+func toiShapeFast(s *shape, sw Sweep, safetyFactor float32) bool {
 	chord := 2 * Length(InvMulQuat(sw.Q1, sw.Q2).V)
 	travel := Length(Sub(sw.C2, sw.C1)) + chord*toiRotationRadius(s, sw.LocalCenter)
-	limit := computeShapeMinExtent(s, s.localCentroid) * e.w.bodies[s.bodyId].safetyFactor
+	limit := computeShapeMinExtent(s, s.localCentroid) * safetyFactor
 	if s.typ == MeshShape || s.typ == HeightShape {
 		limit = 0
 	}
@@ -357,6 +361,23 @@ func runTOIContinuation(ctx *stepContext) {
 	if !s.enabled || s.err != nil || ctx.dt <= 0 {
 		return
 	}
+	eligible, err := toiHasEligibleMotion(ctx)
+	if err != nil {
+		s.err = fmt.Errorf("%w: %v", ErrTOIContinuation, err)
+		return
+	}
+	if !eligible {
+		// Preserve the ordinary no-event publication arithmetic and superseded
+		// per-body CCD policy without allocating a local island workspace.
+		for i := range ctx.sims {
+			b := toiBody{sim: ctx.sims[i], state: ctx.states[i]}
+			end := b.sweepAt(1)
+			ctx.states[i].deltaPosition = Sub(end.C2, ToVec3(ctx.sims[i].center))
+			ctx.states[i].deltaRotation = MulQuat(end.Q2, Conjugate(ctx.sims[i].transform.Q))
+		}
+		s.noEligibleMotion = true
+		return
+	}
 	e := &toiEngine{w: w, ctx: ctx, bodies: map[int32]*toiBody{}, proxies: map[int32]int{}, queued: map[toiPair][2]uint64{}, active: map[toiFeature]bool{}, known: map[toiContactKey]bool{}, jointStates: map[int32]jointSim{}, rejected: map[toiPair][2]uint64{}}
 	s.engine = e
 	e.tree = CreateDynamicTree(len(ctx.sims))
@@ -457,12 +478,7 @@ func runTOIContinuation(ctx *stepContext) {
 
 func (e *toiEngine) bulletFast(id int32) bool {
 	b := e.body(id)
-	if b.sim.flags&isBullet == 0 {
-		return false
-	}
-	s := b.sweepAt(b.fraction)
-	travel := Length(Sub(s.C2, s.C1)) + 2*Length(InvMulQuat(s.Q1, s.Q2).V)*Length(b.sim.maxExtent)
-	return travel > e.w.bodies[id].safetyFactor*b.sim.minExtent
+	return toiBulletFast(&b.sim, b.sweepAt(b.fraction), e.w.bodies[id].safetyFactor)
 }
 func (e *toiEngine) isRejected(pair toiPair) bool {
 	a, b := e.body(e.w.shapes[pair.a].bodyId), e.body(e.w.shapes[pair.b].bodyId)
@@ -471,4 +487,39 @@ func (e *toiEngine) isRejected(pair toiPair) bool {
 func (e *toiEngine) checkPreSolve(event toiEvent) error {
 	_, err := e.build(event.pair, event.fraction, false)
 	return err
+}
+
+func toiBulletFast(sim *bodySim, sweep Sweep, safetyFactor float32) bool {
+	if sim.flags&isBullet == 0 {
+		return false
+	}
+	travel := Length(Sub(sweep.C2, sweep.C1)) + 2*Length(InvMulQuat(sweep.Q1, sweep.Q2).V)*Length(sim.maxExtent)
+	return travel > safetyFactor*sim.minExtent
+}
+
+// Inspect actual solver output before copying bodies or building swept trees.
+// This uses the same eligibility as candidate generation, including every leaf
+// of an eligible bullet and the zero-inner-extent moving-mesh policy.
+func toiHasEligibleMotion(ctx *stepContext) (bool, error) {
+	w := ctx.world
+	for i := range ctx.sims {
+		sim, state := ctx.sims[i], ctx.states[i]
+		b := toiBody{sim: sim, state: state}
+		sweep := b.sweepAt(0)
+		body := &w.bodies[sim.bodyId]
+		bullet := toiBulletFast(&sim, sweep, body.safetyFactor)
+		for id := body.headShapeId; id != NullIndex; id = w.shapes[id].nextShapeId {
+			shape := &w.shapes[id]
+			if shape.sensorIndex != NullIndex {
+				continue
+			}
+			if shape.typ == CompoundShape && (sweep.C1 != sweep.C2 || sweep.Q1 != sweep.Q2) {
+				return false, errors.New("moving native compound continuation is unsupported; use convex leaves")
+			}
+			if bullet || toiShapeFast(shape, sweep, body.safetyFactor) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
 }

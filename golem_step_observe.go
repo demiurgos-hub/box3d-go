@@ -1,7 +1,10 @@
 // Golem additions to Box3D-Go. SPDX-License-Identifier: MIT
 package box3d
 
-import "errors"
+import (
+	"errors"
+	"slices"
+)
 
 // ErrObservedStepInvalid reports invalid observed-step settings or world state.
 var ErrObservedStepInvalid = errors.New("box3d: invalid observed step")
@@ -41,15 +44,26 @@ func (id WorldID) StepObserved(dt float32, options ObservedStepOptions, observe 
 
 	sample := MotionStepSample{Delta: dt, ImpulseDuration: dt, EndFraction: 1}
 	if observe != nil {
-		for i := range w.bodies {
-			body := &w.bodies[i]
-			if body.id == NullIndex || body.setIndex == disabledSet || body.typ == StaticBody {
+		count := 0
+		for i := range w.solverSets {
+			if i != staticSet && i != disabledSet {
+				count += len(w.solverSets[i].bodySims)
+			}
+		}
+		sample.Bodies = make([]MotionBodySample, 0, count)
+		for setID := range w.solverSets {
+			if setID == staticSet || setID == disabledSet {
 				continue
 			}
-			bodyID := BodyID{body.id + 1, w.worldId, body.generation}
-			sample.Bodies = append(sample.Bodies, MotionBodySample{Body: bodyID, Start: bodyID.GetTransform()})
+			for i := range w.solverSets[setID].bodySims {
+				sim := &w.solverSets[setID].bodySims[i]
+				body := &w.bodies[sim.bodyId]
+				sample.Bodies = append(sample.Bodies, MotionBodySample{Body: BodyID{sim.bodyId + 1, w.worldId, body.generation}, Start: sim.transform})
+			}
 		}
+		slices.SortFunc(sample.Bodies, func(a, b MotionBodySample) int { return int(a.Body.Index1) - int(b.Body.Index1) })
 	}
+
 	if !w.speculativeCCD.enabled {
 		motionInvalidateMovingMeshCaches(w)
 	}

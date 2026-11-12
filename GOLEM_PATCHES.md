@@ -590,3 +590,30 @@ These checks do not establish full-size workload performance or platform qualifi
 Canonical references (algorithm attribution, not unchanged-C parity):
 - https://github.com/erincatto/box2d/blob/v2.4.1/src/dynamics/b2_island.cpp#L375-L427
 - https://github.com/erincatto/box2d/blob/v2.4.1/src/dynamics/b2_contact_solver.cpp#L761-L789
+
+
+## Avoid static-cardinality scans and unused TOI workspace setup
+
+Observed start poses and predictive participants enumerate enabled nonstatic
+solver sets, including sleeping dynamics/kinematics, then restore stable body-ID
+ordering. They no longer traverse the complete body slot array merely to discard
+static/disabled entries. Predictive body-ID storage is reused; observation storage
+remains owned by its sample.
+
+Continuation checks actual post-solver shape/bullet eligibility before allocating
+private body copies, maps or a swept tree. It shares the same shape inner-extent,
+angular motion, moving-mesh and bullet-all-leaf predicates as candidate generation.
+Moving native compound rejection remains explicit. If no shape qualifies, the
+previous no-event publication arithmetic and superseded per-body CCD policy are
+preserved without constructing an island workspace. Eligibility is recomputed
+from every interval's actual solver output; prior predictive counters never gate
+required collision work.
+
+Baseline evidence is the immutable full-count Windows profile
+`runs/capacity-profile-20261112-01/cpu.pprof` in the validation workspace. The owner
+StepObserved chain accounted for 3.98 s cumulative CPU (native Step 2.16 s,
+observer 1.54 s) during a 7.35 s profile window; predictive setup was 0.33 s.
+Those attribution values are diagnostic, not an allocation estimate or proof this
+optimization alone meets capacity. Focused SIMD continuation/joint controls and
+an additional static-heavy participant/no-work-to-fast-impact regression pass.
+Full workload improvement remains to be measured on the subsequent frozen source.
