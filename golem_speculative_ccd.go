@@ -30,15 +30,28 @@ type predictiveContact struct {
 }
 
 type speculativeCCDScratch struct {
-	enabled  bool
-	stats    SpeculativeCCDStats
-	shapes   []predictiveShape
-	contacts map[uint64]*predictiveContact
-	keys     []uint64
+	enabled       bool
+	stats         SpeculativeCCDStats
+	shapes        []predictiveShape
+	contacts      map[uint64]*predictiveContact
+	keys          []uint64
+	kinematics    map[int32]kinematicCCDTarget
+	kinematicTree DynamicTree
+	kinematicIDs  []int32
+}
+
+// Kinematic poses are independent of contact impulses. Retaining their sweeps
+// and shape metadata before finalization lets solver-accelerated bodies query
+// them without racing the native parallel update of transforms and AABBs.
+type kinematicCCDTarget struct {
+	shape  shape
+	sweep  Sweep
+	bounds AABB
 }
 
 // SpeculativeCCDStats reports work performed by the latest native step.
 // Contacts counts predictive manifolds, not geometric touching or gameplay hits.
+// These counters exclude the built-in post-solve continuous sweeps.
 type SpeculativeCCDStats struct {
 	Candidates, PairTests, Contacts int
 }
@@ -57,6 +70,8 @@ func (id WorldID) GetSpeculativeCCDStats() SpeculativeCCDStats {
 // contact solver supplies all response. It neither subdivides simulation time
 // nor certifies all resulting solver paths. Solver-induced acceleration remains
 // subject to the native post-solve CCD coverage. Sensors use separate queries.
+// Enabled worlds retain immutable kinematic sweeps for all fast dynamic bodies,
+// including bodies accelerated by constraints after the initial prediction.
 // This extension is off by default and is not supported by upstream recording.
 func (id WorldID) SetSpeculativeCCD(enabled bool) error {
 	w := getUnlockedWorldFromId(id)
@@ -111,6 +126,8 @@ func prepareSpeculativeCCD(w *world, dt float32, substeps int) {
 	scratch := &w.speculativeCCD
 	scratch.stats = SpeculativeCCDStats{}
 	clear(scratch.contacts)
+	clear(scratch.kinematics)
+	scratch.kinematicIDs = scratch.kinematicIDs[:0]
 	scratch.keys = scratch.keys[:0]
 	scratch.shapes = scratch.shapes[:0]
 	if !scratch.enabled || !w.enableContinuous || dt <= 0 {
@@ -127,10 +144,17 @@ func prepareSpeculativeCCD(w *world, dt float32, substeps int) {
 		chord := 2 * Length(InvMulQuat(sweep.Q1, sweep.Q2).V)
 		for index := body.headShapeId; index != NullIndex; index = w.shapes[index].nextShapeId {
 			shape := &w.shapes[index]
+			if body.typ == KinematicBody {
+				if scratch.kinematics == nil {
+					scratch.kinematics = make(map[int32]kinematicCCDTarget)
+				}
+				scratch.kinematics[shape.id] = kinematicCCDTarget{*shape, sweep, continuousShapeBounds(shape, &sweep, 1)}
+				scratch.kinematicIDs = append(scratch.kinematicIDs, shape.id)
+			}
 			if shape.sensorIndex != NullIndex {
 				continue
 			}
-			travel := Distance(sweep.C1, sweep.C2) + chord*continuousShapeRadius(shape, sweep.LocalCenter)
+			travel := Distance(sweep.C1, sweep.C2) + float32(chord*continuousShapeRadius(shape, sweep.LocalCenter))
 			fast := travel > body.safetyFactor*computeShapeMinExtent(shape, shape.localCentroid)
 			if shape.typ == MeshShape || shape.typ == HeightShape {
 				// A concave surface has no positive inner radius. Its distant
@@ -141,6 +165,12 @@ func prepareSpeculativeCCD(w *world, dt float32, substeps int) {
 				fastCount++
 			}
 			scratch.shapes = append(scratch.shapes, predictiveShape{shape.id, sweep, continuousShapeBounds(shape, &sweep, 1), fast})
+		}
+	}
+	if len(scratch.kinematics) > 0 {
+		scratch.kinematicTree = CreateDynamicTree(len(scratch.kinematics))
+		for _, id := range scratch.kinematicIDs {
+			scratch.kinematicTree.CreateProxy(scratch.kinematics[id].bounds, DefaultCategoryBits, uint64(id))
 		}
 	}
 	if fastCount == 0 {

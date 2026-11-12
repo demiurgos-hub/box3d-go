@@ -23,7 +23,7 @@ func motionContactFixture(t *testing.T, pairs int) (WorldID, []MotionBodySample)
 
 func TestGolemMotionContactSamplesOwnTheirStorage(t *testing.T) {
 	w, bodies := motionContactFixture(t, 8)
-	scratch := motionStepScratch{}
+	scratch := observedContactScratch{}
 	a := MotionStepSample{Bodies: bodies}
 	motionCopyEvents(w, &a, &scratch)
 	b := MotionStepSample{Bodies: bodies}
@@ -69,7 +69,7 @@ func TestGolemMotionContactSamplesOwnTheirStorage(t *testing.T) {
 
 func TestGolemMotionContactSampleAllocations(t *testing.T) {
 	w, bodies := motionContactFixture(t, 32)
-	scratch := motionStepScratch{}
+	scratch := observedContactScratch{}
 	allocs := testing.AllocsPerRun(20, func() {
 		sample := MotionStepSample{Bodies: bodies}
 		motionCopyEvents(w, &sample, &scratch)

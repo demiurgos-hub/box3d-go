@@ -17,9 +17,9 @@ func DefaultObservedStepOptions() ObservedStepOptions {
 }
 
 // StepObserved performs exactly one native Step(dt, 1), then reports owned body,
-// contact and event samples. It does not cast candidate pairs, subdivide time or
-// impose an additional penetration policy. Native continuous collision remains
-// controlled by the world definition.
+// contact and event samples. Observation adds no candidate search, time
+// subdivision or penetration policy of its own. Enabled native CCD policies,
+// including SetSpeculativeCCD, may cast candidate pairs during the native step.
 //
 // The observer runs with the world locked and must not mutate it. Its error is
 // returned after simulation has advanced; it does not roll back bodies. Callers
@@ -60,7 +60,7 @@ func (id WorldID) StepObserved(dt float32, options ObservedStepOptions, observe 
 		body.LinearVelocity = body.Body.GetLinearVelocity()
 		body.AngularVelocity = body.Body.GetAngularVelocity()
 	}
-	var scratch motionStepScratch
+	var scratch observedContactScratch
 	motionCopyEvents(id, &sample, &scratch)
 	return errors.Join(stepError, motionObserve(w, sample, observe))
 }

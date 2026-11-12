@@ -6,6 +6,101 @@ Original MIT attribution and port notes remain intact. This fork uses Go 1.27.1
 and float32 positions, geometry and simulation. It does not change default cast semantics
 or implement character pushing through manual impulses.
 
+## Unreduced hulls, widened topology and small mesh triangles
+
+`CreateHullUnreduced` accepts raw point clouds larger than the native output
+limits, including repeated and interior points, but fails when construction
+still has outside points after exhausting its budget. It uses the existing
+float32 hull tolerances and topology limits; it does not silently return the
+budget-reduced hull that `CreateHull` intentionally permits. The original API
+and its intentional vertex-budget simplification remain available.
+
+Hull topology and SAT feature indices now use uint16, with bounded limits of
+256 vertices, 512 faces and 768 full edges. Hull native image version changes
+from `0x6B1E39D4A87C25F3` to `0x6B1E39D4A87C25F4`; native world snapshot version
+is 12. Old native images require recooking; old snapshots are rejected. Compound
+version derives from the new hull version. Float32 geometry is unchanged.
+Simplex vertex caches remain uint8 because the maximum vertex index is 255.
+Support queries above 128 points use an exact scalar scan, preserving the
+original mantissa-index fast path for smaller hulls without reducing precision.
+
+Contact feature pairs hold uint16 indices, but `EncodeFeaturePair` preserves all
+legacy uint32 identities and contact/query layouts. Two 14-bit indices and two
+one-bit owners occupy documented disjoint fields; bits 15 and 31 are reserved,
+so the invalid all-ones sentinel cannot alias a valid pair. Named encode/decode
+helpers reject out-of-range inputs and regression tests exercise legacy values,
+high indices, roundtrips, injectivity and sentinel rejection.
+
+`CreateMeshPreserveSmallTriangles` retains every float32 nonzero-area triangle
+instead of applying the default `0.01 * LinearSlop()^2` area cutoff. Zero-area
+faces retain native omission/counting behavior. The adapter still rejects any
+triangle-count change, so no authored face is silently lost. Original mesh
+cooking defaults, mesh image layout and vertex-welding behavior are unchanged.
+
+Focused regression evidence is under `cook-support-20261112-01` in the external
+validation workspace. The actual deco-95 capture retains 63,182 triangles,
+including 84 nonzero faces discarded by the default cutoff. The same captured
+priority sources now cook unreduced hulls up to 167 vertices, 284 faces and 894
+half-edges. Prior failures remain preserved. Representative topology, contact,
+query and independent native-image reference checks cover this format change;
+they do not qualify the full content catalog or workload capacity.
+
+## Retirement of global physical motion refinement
+
+The unshipped `WorldID.StepMotion` API, its subdivision settings/results/errors,
+global admission predictor, post-solve path certification and universal
+penetration guard have been removed. Earlier ledger entries describing that
+experiment are historical records, not current solver behavior. Exact source,
+held working changes and their hashes were preserved before removal under
+`motion-retirement-20261112-01` in the external validation workspace.
+
+`StepObserved` retains exactly one native step, owned body/contact/event samples,
+observer locking and the existing solver-iteration override. Shared observation
+types, event-copy scratch, iteration access and moving-mesh cache invalidation
+now live in focused files. Observation itself performs no additional candidate
+search; enabled native CCD policies can perform their ordinary candidate casts.
+`CastMotion`, `MotionBounds`, `MotionIntervals` and their bounded local geometric
+search remain active public query and swept-sensor functionality. They do not
+subdivide or re-run physical simulation.
+
+Physical regressions migrate to fixed 80Hz native steps: braking near an obstacle,
+initial penetration recovery, resting hulls, feasible rising support under a
+ceiling, tiny bullets and the portable compound's flattened floor/wall leaves.
+Migration checks over committed `0a96446` expose motor-induced motion through a
+stationary kinematic mesh and repeated motor motion through the flattened wall
+after its first TOI clip. Both remain explicit required native coverage cases
+until native scheduling/response is corrected.
+The direct baked-native-compound floor/wall failure is separately preserved as
+an upstream capability diagnostic; portable compounds use flattened leaves and
+passing that path does not qualify the direct baked representation.
+
+The old CCD-disabled compound case retains its disabled-CCD meaning. The old
+kinematic compression fixture eventually leaves less room than its passenger's
+diameter; it requires host transport clipping/rejection, not an impossible native
+nonpenetration guarantee. Its exact fixture and diagnostic remain preserved.
+Static low-ceiling character sweeps are only partial host-policy coverage;
+moving-support passenger transport requires its own integration regression.
+
+## Immutable kinematic targets and native sensor hits
+
+Enabled speculative-CCD worlds retain kinematic shape metadata, full swept
+bounds and trajectories before parallel body finalization. The native post-solve
+continuous pass queries this immutable tree for every fast dynamic body, including
+motion introduced by a motor or contact solve after initial prediction. A target's
+bullet flag cannot exclude its fixed kinematic trajectory. Upstream dynamic-bullet
+ordering remains unchanged. This is coverage for detection; it does not by itself
+repair repeated motor contact response.
+
+Native swept sensor admission now checks the TOI state as well as its fraction.
+A mesh miss with a default zero fraction must not synthesize an entry. Valid
+crossings and initial overlap retain their native classifications.
+
+Focused geometry, scalar/SIMD and race evidence is preserved under
+`motion-retirement-20261112-01` in the external validation workspace, including
+zero/+2304m target poses, bullet policies and one/eight-worker sensor cases.
+The native upstream core suite also passes with the sensor-state correction;
+the separately recorded required motor-continuation failures remain open.
+
 ## Opt-in native speculative CCD
 
 `WorldID.SetSpeculativeCCD` adds targeted moving-pair prediction to native
@@ -38,8 +133,8 @@ establish geometric touching or a gameplay hit. The adapter filters separating
 zero-impulse contacts and observes sensors independently.
 
 `SpeculativeCCDStats` counts unique swept candidates, filtered moving-pair TOI
-calls and predictive manifolds for the attempted step; it excludes built-in
-static-sweep work. Upstream recording refuses this mode because the recording
+calls and predictive manifolds for the attempted step; it excludes all built-in
+post-solve continuous sweeps. Upstream recording refuses this mode because the recording
 format does not encode the policy. Engine portable checkpoints reconstruct it
 from their versioned world configuration instead.
 

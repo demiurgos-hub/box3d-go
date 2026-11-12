@@ -617,6 +617,10 @@ func continuousQueryCallback(proxyId int, userData uint64, context any) bool {
 
 	world := continuousContext.world
 	shape := arrayGet(world.shapes, shapeId)
+	kinematic, retainedKinematic := world.speculativeCCD.kinematics[int32(shapeId)]
+	if retainedKinematic {
+		shape = &kinematic.shape
+	}
 
 	// Skip same body
 	if shape.bodyId == fastShape.bodyId {
@@ -637,12 +641,12 @@ func continuousQueryCallback(proxyId int, userData uint64, context any) bool {
 
 	body := arrayGet(world.bodies, int(shape.bodyId))
 
-	bodySim := getBodySim(world, body)
-	assert(body.typ == StaticBody || (fastBodySim.flags&isBullet) != 0,
-		"body->type == b3_staticBody || ( fastBodySim->flags & b3_isBullet )")
+	assert(body.typ == StaticBody || retainedKinematic || (fastBodySim.flags&isBullet) != 0,
+		"static, retained kinematic, or bullet CCD target")
 
-	// Skip bullets
-	if body.flags&isBullet != 0 {
+	// Dynamic bullet ordering remains native. Retained kinematics have an
+	// immutable trajectory, including when their author selected bullet policy.
+	if !retainedKinematic && body.flags&isBullet != 0 {
 		return true
 	}
 
@@ -667,13 +671,20 @@ func continuousQueryCallback(proxyId int, userData uint64, context any) bool {
 	}
 
 	// todo does having a sweep on shapeA help with bullets?
-	sweepA := makeRelativeSweep(bodySim, continuousContext.base)
+	var sweepA Sweep
+	if retainedKinematic {
+		sweepA = kinematic.sweep
+		sweepA.C1 = Sub(sweepA.C1, ToVec3(continuousContext.base))
+		sweepA.C2 = Sub(sweepA.C2, ToVec3(continuousContext.base))
+	} else {
+		sweepA = makeRelativeSweep(getBodySim(world, body), continuousContext.base)
+	}
 
 	// Time of impact versus shape. Supports all shape types
 	output := shapeTimeOfImpact(shape, fastShape, &sweepA, &continuousContext.sweep, continuousContext.fraction)
 	if isSensor {
 		// Only accept a sensor hit that is sooner than the current solid hit.
-		if output.Fraction <= continuousContext.fraction && continuousContext.sensorCount < maxContinuousSensorHits {
+		if (output.State == TOIStateHit || output.State == TOIStateOverlapped) && output.Fraction <= continuousContext.fraction && continuousContext.sensorCount < maxContinuousSensorHits {
 			index := continuousContext.sensorCount
 
 			// The hit shape is a sensor
@@ -808,9 +819,14 @@ func solveContinuous(world *world, bodySimIndex int, taskContext *taskContext, d
 			sweptBox = sweptBox.Union(continuousOffsetBounds(continuousShapeBounds(fastShape, &sweep, context.fraction), base))
 		}
 		staticTree.Query(sweptBox, DefaultMaskBits, false, continuousQueryCallback, context)
+		if len(world.speculativeCCD.kinematics) > 0 {
+			world.speculativeCCD.kinematicTree.Query(sweptBox, DefaultMaskBits, false, continuousQueryCallback, context)
+		}
 
 		if isBullet {
-			kinematicTree.Query(sweptBox, DefaultMaskBits, false, continuousQueryCallback, context)
+			if !world.speculativeCCD.enabled {
+				kinematicTree.Query(sweptBox, DefaultMaskBits, false, continuousQueryCallback, context)
+			}
 			dynamicTree.Query(sweptBox, DefaultMaskBits, false, continuousQueryCallback, context)
 		}
 	}
