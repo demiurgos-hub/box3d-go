@@ -229,25 +229,9 @@ func getMotorJointTorque(world *world, base *jointSim) Vec3 {
 func prepareMotorJoint(base *jointSim, context *stepContext) {
 	assert(base.typ == MotorJoint, "base->type == b3_motorJoint")
 
-	// chase body id to the solver set where the body lives
-	idA := int(base.bodyIdA)
-	idB := int(base.bodyIdB)
-
-	world := context.world
-
-	bodyA := arrayGet(world.bodies, idA)
-	bodyB := arrayGet(world.bodies, idB)
-
-	assert(bodyA.setIndex == awakeSet || bodyB.setIndex == awakeSet, "bodyA->setIndex == b3_awakeSet || bodyB->setIndex == b3_awakeSet")
-
-	setA := arrayGet(world.solverSets, int(bodyA.setIndex))
-	setB := arrayGet(world.solverSets, int(bodyB.setIndex))
-
-	localIndexA := bodyA.localIndex
-	localIndexB := bodyB.localIndex
-
-	bodySimA := arrayGet(setA.bodySims, int(localIndexA))
-	bodySimB := arrayGet(setB.bodySims, int(localIndexB))
+	bodySimA, localIndexA := jointBodyForContext(context, base.bodyIdA)
+	bodySimB, localIndexB := jointBodyForContext(context, base.bodyIdB)
+	assert(localIndexA != NullIndex || localIndexB != NullIndex, "joint has a solver body")
 
 	base.invMassA = bodySimA.invMass
 	base.invMassB = bodySimB.invMass
@@ -258,14 +242,8 @@ func prepareMotorJoint(base *jointSim, context *stepContext) {
 	base.fixedRotation = Det(invInertiaSum) < 1000.0*fltMin
 
 	joint := &base.motorJoint
-	joint.indexA = NullIndex
-	if bodyA.setIndex == awakeSet {
-		joint.indexA = localIndexA
-	}
-	joint.indexB = NullIndex
-	if bodyB.setIndex == awakeSet {
-		joint.indexB = localIndexB
-	}
+	joint.indexA = localIndexA
+	joint.indexB = localIndexB
 
 	// Compute joint anchor frames with world space rotation, relative to center of mass
 	joint.frameA.Q = MulQuat(bodySimA.transform.Q, base.localFrameA.Q)
@@ -276,12 +254,12 @@ func prepareMotorJoint(base *jointSim, context *stepContext) {
 	// Compute the initial center delta. Incremental position updates are relative to this.
 	joint.deltaCenter = SubPos(bodySimB.center, bodySimA.center)
 
-	joint.linearSpring = makeSoft(joint.linearHertz, joint.linearDampingRatio, context.h)
-	joint.angularSpring = makeSoft(joint.angularHertz, joint.angularDampingRatio, context.h)
+	joint.linearSpring = makeSoft(joint.linearHertz, joint.linearDampingRatio, jointIntervalH(context))
+	joint.angularSpring = makeSoft(joint.angularHertz, joint.angularDampingRatio, jointIntervalH(context))
 
 	joint.angularMass = InvertMatrix(invInertiaSum)
 
-	if context.enableWarmStarting == false {
+	if context.enableWarmStarting == false && !context.retainJointImpulses {
 		joint.linearVelocityImpulse = Vec3Zero
 		joint.angularVelocityImpulse = Vec3Zero
 		joint.linearSpringImpulse = Vec3Zero
@@ -376,7 +354,7 @@ func solveMotorJoint(base *jointSim, context *stepContext) {
 
 		cdot := Sub(wB, wA)
 
-		maxImpulse := float32(context.h * joint.maxSpringTorque)
+		maxImpulse := float32(jointIntervalH(context) * joint.maxSpringTorque)
 		oldImpulse := joint.angularSpringImpulse
 		impulse := MulSub(MulSV(-massScale, MulMV(joint.angularMass, Add(cdot, bias))), impulseScale, oldImpulse)
 		joint.angularSpringImpulse = Add(oldImpulse, impulse)
@@ -394,7 +372,7 @@ func solveMotorJoint(base *jointSim, context *stepContext) {
 		cdot := Sub(Sub(wB, wA), joint.angularVelocity)
 		impulse := Neg(MulMV(joint.angularMass, cdot))
 
-		maxImpulse := float32(context.h * joint.maxVelocityTorque)
+		maxImpulse := float32(jointIntervalH(context) * joint.maxVelocityTorque)
 		oldImpulse := joint.angularVelocityImpulse
 		joint.angularVelocityImpulse = Add(oldImpulse, impulse)
 		if LengthSquared(joint.angularVelocityImpulse) > float32(maxImpulse*maxImpulse) {
@@ -425,7 +403,7 @@ func solveMotorJoint(base *jointSim, context *stepContext) {
 
 		oldImpulse := joint.linearSpringImpulse
 		impulse := MulSub(MulSV(-massScale, b), impulseScale, oldImpulse)
-		maxImpulse := float32(context.h * joint.maxSpringForce)
+		maxImpulse := float32(jointIntervalH(context) * joint.maxSpringForce)
 		joint.linearSpringImpulse = Add(joint.linearSpringImpulse, impulse)
 
 		if LengthSquared(joint.linearSpringImpulse) > float32(maxImpulse*maxImpulse) {
@@ -449,7 +427,7 @@ func solveMotorJoint(base *jointSim, context *stepContext) {
 		impulse := Neg(b)
 
 		oldImpulse := joint.linearVelocityImpulse
-		maxImpulse := float32(context.h * joint.maxVelocityForce)
+		maxImpulse := float32(jointIntervalH(context) * joint.maxVelocityForce)
 		joint.linearVelocityImpulse = Add(joint.linearVelocityImpulse, impulse)
 
 		if LengthSquared(joint.linearVelocityImpulse) > float32(maxImpulse*maxImpulse) {

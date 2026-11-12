@@ -518,3 +518,75 @@ patch. Only affected world/recording/replay/shape and deterministic expectations
 select this reference; original upstream and contact-only fixtures remain
 unchanged. The C text results agree at one/four workers. This is an explicit
 corrected-source comparison, not a claim that unmodified upstream matches.
+
+
+## Opt-in local coupled TOI continuation
+
+`SetTOIContinuation(true)` replaces the opted-in world's original per-body solid
+CCD finalization with bounded, candidate-driven local contact-island response.
+It uses the native shape TOI routines, swept broadphase candidates, contact/joint
+membership, scalar contact/joint preparation and impulse accumulation. It does
+not repeat external force/damping integration, replay warm starts, advance the
+world clock per observation, or globally subdivide/recast the world. Defaults
+remain unchanged when this capability is disabled. The current contract requires
+exactly one native substep; Golem supplies four calls per 20 Hz frame.
+
+The position-only NGS phase follows the structure of Box2D 2.4.1
+`b2ContactSolver::SolveTOIPositionConstraints` (native 5 mm linear slop, 0.75 TOI
+Baumgarte, bounded correction), rebuilding native manifolds and world inertia
+before preparing velocity rows. Only actually admitted impact features replace
+positive speculative gap bias with restitution-only impact semantics, including
+the restitution fallback. Other island rows retain native speculative behavior.
+Eight local joint-first/contact passes reuse native kernels; current-interval
+joint accumulators and original force/torque/spring budgets are retained without
+applying warm starts again. Newly joined sleeping joints cold-start their stale
+cache. Disabled endpoints are excluded. Local spherical joint reaction thresholds
+use the impact pose, not the original world's pose.
+
+The earliest-event heap invalidates stale candidates on participant revision.
+Relative linear/angular motion determines subsequent CCD eligibility; initially
+eligible bullets preserve all-solid-leaf coverage. Native static, sleeping dynamic
+and sleeping kinematic trees supplement the owned moving-sweep tree. PreSolve
+rejection removes the candidate at its current participant revisions. Native
+CompoundShape contacts require flattened convex/mesh leaves for both static and
+moving bodies; unsupported native compound admission fails explicitly. Golem's
+authoring adapter already flattens compound leaves. Dynamic concave simulation
+remains unsupported. Native recording is rejected while continuation is enabled.
+
+`StepObserved` owns common-time poses/velocities and complete geometric contact
+samples. Continuation `Contacts` have zero impulse totals. `ImpulseContacts`
+contains actual solver-response witnesses, rebased to the sampled body COM, with
+`TotalNormalImpulse` deltas reported exactly once. These witnesses do not establish
+sensor/geometric overlap. Ordinary fallback retains combined Contacts semantics,
+with stale sleeping-contact impulses zeroed using captured current-step solved
+graph membership and contact generation. `ImpulseDuration` is the original native
+interval even for zero-time impact samples; elapsed sample Delta sums to that
+interval. Completed position corrections are observed once, not each NGS iterate.
+Whole-step speculative/continuation work totals appear on the first owned sample
+only, so early observer rejection still records attempted work.
+
+Native discrete sensor lifecycle remains enabled. The old per-body swept sensor
+pass is superseded: callers must replay continuous sensor intervals over the owned
+trajectory samples (Golem does so). Native recording/replay does not claim to
+represent this opt-in policy. Observer or continuation failure leaves the advanced
+native state; transactional hosts must reject/restore the whole frame.
+
+Limits before work/owned allocation: 256 impact events, 4096 local bodies, 65535
+local contact rows, 1000000 candidate visits, 65536 position work visits, 1024
+owned samples, and 1048576 owned body/contact rows. Exceeding a limit is an explicit
+`ErrTOIContinuation`, not a clear sweep. `TOIContinuationStats` reports Candidates,
+PairTests, Events, IslandBodies and ContactRows; the last two sum work across
+impact solves, not unique world objects.
+
+Focused evidence: supported centered plate masses 0.1 and 1 retain containment
+and energy, with maximum wall penetration 3.556022 mm and 0.1505334 mm over 240
+80 Hz intervals; motor/static-wall and motor/kinematic-mesh cases remain contained.
+Momentum, restitution, force/gravity duration and exactly-once owned impulse samples
+pass. Concrete lifecycle checks cover PreSolve rejection, disabled joint endpoints,
+sleeping kinematic targets, bullet all-leaf coverage and sleeping impulse suppression.
+Local preparation/retained-budget tests cover all native solving joint families.
+These checks do not establish full-size workload performance or platform qualification.
+
+Canonical references (algorithm attribution, not unchanged-C parity):
+- https://github.com/erincatto/box2d/blob/v2.4.1/src/dynamics/b2_island.cpp#L375-L427
+- https://github.com/erincatto/box2d/blob/v2.4.1/src/dynamics/b2_contact_solver.cpp#L761-L789

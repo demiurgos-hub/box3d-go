@@ -182,7 +182,7 @@ func prepareContactsMesh(block solverBlock, context *stepContext) {
 			indexB := decodeAwakeIndex(int(contact.encodedBodySimB))
 
 			// PORT: #if B3_ENABLE_VALIDATION becomes a branch on validateEnabled.
-			if validateEnabled {
+			if validateEnabled && context.localJointBodies == nil {
 				bodyA := arrayGet(world.bodies, int(contact.edges[0].bodyId))
 				bodyB := arrayGet(world.bodies, int(contact.edges[1].bodyId))
 				assert(int(contact.encodedBodySimA) == encodeBodySimIndex(bodyA), "contact->encodedBodySimA == b3EncodeBodySimIndex( bodyA )")

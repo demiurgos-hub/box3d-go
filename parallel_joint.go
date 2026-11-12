@@ -91,21 +91,9 @@ func getParallelJointTorque(world *world, base *jointSim) Vec3 {
 func prepareParallelJoint(base *jointSim, context *stepContext) {
 	assert(base.typ == ParallelJoint, "base->type == b3_parallelJoint")
 
-	world := context.world
-
-	bodyA := arrayGet(world.bodies, int(base.bodyIdA))
-	bodyB := arrayGet(world.bodies, int(base.bodyIdB))
-
-	assert(bodyA.setIndex == awakeSet || bodyB.setIndex == awakeSet,
-		"bodyA->setIndex == b3_awakeSet || bodyB->setIndex == b3_awakeSet")
-	setA := arrayGet(world.solverSets, int(bodyA.setIndex))
-	setB := arrayGet(world.solverSets, int(bodyB.setIndex))
-
-	localIndexA := bodyA.localIndex
-	localIndexB := bodyB.localIndex
-
-	bodySimA := arrayGet(setA.bodySims, int(localIndexA))
-	bodySimB := arrayGet(setB.bodySims, int(localIndexB))
+	bodySimA, localIndexA := jointBodyForContext(context, base.bodyIdA)
+	bodySimB, localIndexB := jointBodyForContext(context, base.bodyIdB)
+	assert(localIndexA != NullIndex || localIndexB != NullIndex, "joint has a solver body")
 
 	base.invMassA = bodySimA.invMass
 	base.invMassB = bodySimB.invMass
@@ -116,14 +104,8 @@ func prepareParallelJoint(base *jointSim, context *stepContext) {
 	base.fixedRotation = Det(invInertiaSum) < 1000.0*fltMin
 
 	joint := &base.parallelJoint
-	joint.indexA = NullIndex
-	if bodyA.setIndex == awakeSet {
-		joint.indexA = localIndexA
-	}
-	joint.indexB = NullIndex
-	if bodyB.setIndex == awakeSet {
-		joint.indexB = localIndexB
-	}
+	joint.indexA = localIndexA
+	joint.indexB = localIndexB
 
 	// Compute joint anchor frames with world space rotation, relative to center of mass
 	joint.quatA = MulQuat(bodySimA.transform.Q, base.localFrameA.Q)
@@ -142,9 +124,9 @@ func prepareParallelJoint(base *jointSim, context *stepContext) {
 		joint.perpAxisY = MulSV(0.5, RotateVector(joint.quatA, Add(MulSV(relQ.S, Vec3AxisY), Cross(relQ.V, Vec3AxisY))))
 	}
 
-	joint.softness = makeSoft(joint.hertz, joint.dampingRatio, context.h)
+	joint.softness = makeSoft(joint.hertz, joint.dampingRatio, jointIntervalH(context))
 
-	if context.enableWarmStarting == false {
+	if context.enableWarmStarting == false && !context.retainJointImpulses {
 		joint.perpImpulse = Vec2{0.0, 0.0}
 	}
 }
@@ -241,7 +223,7 @@ func solveParallelJoint(base *jointSim, context *stepContext) {
 		wRel := Sub(wB, wA)
 		cdot := Vec2{Dot(wRel, perpAxisX), Dot(wRel, perpAxisY)}
 
-		maxImpulse := float32(context.h * joint.maxTorque)
+		maxImpulse := float32(jointIntervalH(context) * joint.maxTorque)
 		oldImpulse := joint.perpImpulse
 		cdotPlusBias := Vec2{cdot.X + bias.X, cdot.Y + bias.Y}
 		sol := solve2(k, cdotPlusBias)

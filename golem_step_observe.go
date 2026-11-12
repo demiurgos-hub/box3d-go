@@ -20,6 +20,8 @@ func DefaultObservedStepOptions() ObservedStepOptions {
 // contact and event samples. Observation adds no candidate search, time
 // subdivision or penetration policy of its own. Enabled native CCD policies,
 // including SetSpeculativeCCD, may cast candidate pairs during the native step.
+// SetTOIContinuation adds owned local impact samples and delegates swept sensor
+// crossings to the caller's trajectory replay; native discrete sensors remain active.
 //
 // The observer runs with the world locked and must not mutate it. Its error is
 // returned after simulation has advanced; it does not roll back bodies. Callers
@@ -30,11 +32,14 @@ func (id WorldID) StepObserved(dt float32, options ObservedStepOptions, observe 
 	if w == nil || w.recording != nil || !IsValidFloat(dt) || dt <= 0 || options.VelocityIterations < 1 || options.VelocityIterations > 16 || options.RelaxIterations < 1 || options.RelaxIterations > 16 {
 		return ErrObservedStepInvalid
 	}
+	previousObservation := w.toiContinuation.observing
+	w.toiContinuation.observing = observe != nil
+	defer func() { w.toiContinuation.observing = previousObservation }()
 	previous := motionIterationSettings[w.worldId]
 	motionIterationSettings[w.worldId] = motionSolverIterations{options.VelocityIterations, options.RelaxIterations}
 	defer func() { motionIterationSettings[w.worldId] = previous }()
 
-	sample := MotionStepSample{Delta: dt, EndFraction: 1}
+	sample := MotionStepSample{Delta: dt, ImpulseDuration: dt, EndFraction: 1}
 	if observe != nil {
 		for i := range w.bodies {
 			body := &w.bodies[i]
@@ -50,8 +55,25 @@ func (id WorldID) StepObserved(dt float32, options ObservedStepOptions, observe 
 	}
 	id.Step(dt, 1)
 	sample.SpeculativeCCD = id.GetSpeculativeCCDStats()
-	stepError := id.SpeculativeCCDError()
+	sample.TOIContinuation = id.GetTOIContinuationStats()
+	stepError := errors.Join(id.SpeculativeCCDError(), id.TOIContinuationError())
 	if observe == nil {
+		return stepError
+	}
+	if len(w.toiContinuation.samples) != 0 {
+		var events MotionStepSample
+		var scratch observedContactScratch
+		motionCopyEvents(id, &events, &scratch)
+		samples := w.toiContinuation.samples
+		samples[0].SpeculativeCCD = sample.SpeculativeCCD
+		samples[0].TOIContinuation = sample.TOIContinuation
+		last := &samples[len(samples)-1]
+		last.ContactEvents, last.SensorEvents, last.JointEvents = events.ContactEvents, events.SensorEvents, events.JointEvents
+		for _, owned := range samples {
+			if err := motionObserve(w, owned, observe); err != nil {
+				return errors.Join(stepError, err)
+			}
+		}
 		return stepError
 	}
 	for i := range sample.Bodies {

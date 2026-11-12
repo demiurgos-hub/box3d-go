@@ -212,13 +212,19 @@ type stepContext struct {
 	// shortcut to body sims from awake set
 	sims []bodySim
 
+	// Optional local TOI joint state. Zero values preserve the ordinary solver.
+	localJointBodies    func(bodyID int32) (*bodySim, int32)
+	retainJointImpulses bool
+	jointBudgetH        float32
+
 	// array of all shape ids for shapes that have enlarged AABBs
 	enlargedShapes     []int32
 	enlargedShapeCount int32
 
 	// Array of bullet bodies that need continuous collision handling
-	bulletBodies    []int32
-	bulletBodyCount atomicInt
+	toiOriginalBulletBodies []int32
+	bulletBodies            []int32
+	bulletBodyCount         atomicInt
 
 	anyRestitution atomicInt
 
@@ -1036,7 +1042,7 @@ func finalizeBodiesTask(startIndex, endIndex, workerIndex int, context any) {
 
 			safetyFactor := body.safetyFactor
 			maxMotion := MaxFloat(maxDeltaPosition, float32(maxVelocity*timeStep))
-			if body.typ == DynamicBody && enableContinuous && maxMotion > float32(safetyFactor*sim.minExtent) {
+			if body.typ == DynamicBody && enableContinuous && !toiHandled(world, sim.bodyId) && maxMotion > float32(safetyFactor*sim.minExtent) {
 				// This flag is used for debug draw and contact recycling.
 				sim.flags |= isFast
 
@@ -1647,6 +1653,7 @@ func solve(world *world, stepContext *stepContext) {
 
 	// Only count steps that advance the simulation
 	world.stepIndex += 1
+	captureObservedSolvedContacts(world)
 
 	// PORT: upstream's local is awakeSet, which would shadow the b3_awakeSet constant the event
 	// asserts below use.
@@ -1663,6 +1670,7 @@ func solve(world *world, stepContext *stepContext) {
 		// Prepare buffers for continuous collision (fast bodies)
 		atomicStoreInt(&stepContext.bulletBodyCount, 0)
 		stepContext.bulletBodies = stackAlloc[int32](&world.stack, awakeBodyCount, "bullet bodies")
+		originalBulletBodies := stepContext.bulletBodies
 
 		graph := &world.constraintGraph
 		colors := &graph.colors
@@ -2190,6 +2198,17 @@ func solve(world *world, stepContext *stepContext) {
 
 		validateNoMoved(&world.broadPhase)
 
+		runTOIContinuation(stepContext)
+		awakeSolverSet = &world.solverSets[awakeSet]
+		awakeBodyCount = len(awakeSolverSet.bodySims)
+		stepContext.sims, stepContext.states = awakeSolverSet.bodySims, awakeSolverSet.bodyStates
+		arrayResize(&world.bodyMoveEvents, awakeBodyCount)
+		if len(stepContext.bulletBodies) < awakeBodyCount {
+			stepContext.bulletBodies = make([]int32, awakeBodyCount)
+		}
+		for i := range world.taskContexts {
+			setBitCountAndClear(&world.taskContexts[i].awakeIslandBitSet, uint32(len(awakeSolverSet.islandSims)))
+		}
 		// Finalize bodies. Must happen after the constraint solver and after island splitting.
 		parallelFor(world, finalizeBodiesTask, awakeBodyCount, 8, stepContext, "ccd")
 
@@ -2215,6 +2234,7 @@ func solve(world *world, stepContext *stepContext) {
 			freeWideBuffer(&world.stack, wideConstraints)
 		}
 
+		stepContext.toiOriginalBulletBodies = originalBulletBodies
 		world.profile.Transforms = GetMilliseconds(transformTicks)
 	}
 
@@ -2435,7 +2455,7 @@ func solve(world *world, stepContext *stepContext) {
 		world.profile.Bullets = GetMilliseconds(bulletTicks)
 	}
 
-	stackFree(&world.stack, stepContext.bulletBodies)
+	stackFree(&world.stack, stepContext.toiOriginalBulletBodies)
 	stepContext.bulletBodies = nil
 	atomicStoreInt(&stepContext.bulletBodyCount, 0)
 

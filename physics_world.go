@@ -123,6 +123,7 @@ type stepScratch struct {
 // The world also contains efficient memory management facilities.
 type world struct {
 	speculativeCCD  speculativeCCDScratch
+	toiContinuation toiContinuationState
 	stack           stack
 	broadPhase      broadPhase
 	constraintGraph constraintGraph
@@ -1299,6 +1300,9 @@ func collide(context *stepContext) {
 func (worldId WorldID) Step(timeStep float32, subStepCount int) {
 	world := getUnlockedWorldFromId(worldId)
 	if world == nil {
+		return
+	}
+	if !resetTOIContinuation(world, subStepCount) {
 		return
 	}
 
@@ -2539,7 +2543,7 @@ func (worldId WorldID) StartRecording(recording *Recording) {
 	// Must be a step boundary, so refuse a locked world
 	world := getUnlockedWorldFromId(worldId)
 
-	if world == nil || recording == nil || world.recording != nil || world.speculativeCCD.enabled {
+	if world == nil || recording == nil || world.recording != nil || world.speculativeCCD.enabled || world.toiContinuation.enabled {
 		return
 	}
 

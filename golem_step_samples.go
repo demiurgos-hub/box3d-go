@@ -14,14 +14,24 @@ type MotionBodySample struct {
 // rejects observation after simulation has advanced. Bodies contains enabled
 // nonstatic bodies only.
 type MotionStepSample struct {
-	SpeculativeCCD                    SpeculativeCCDStats
+	SpeculativeCCD  SpeculativeCCDStats
+	TOIContinuation TOIContinuationStats
+	// ImpulseDuration is the full native interval. Copied manifold total impulses
+	// are deltas reported once, even when Delta is zero at a local impact.
+	ImpulseDuration                   float32
 	Index                             int
 	Delta, StartFraction, EndFraction float32
 	Bodies                            []MotionBodySample
 	Contacts                          []ContactData
-	ContactEvents                     ContactEvents
-	SensorEvents                      SensorEvents
-	JointEvents                       JointEvents
+	// ImpulseContacts contains solver-response witnesses only. These rows do not
+	// establish geometric or sensor overlap. TotalNormalImpulse is reported once
+	// and anchors are relative to this sample's body COM. Continuation Contacts
+	// carry geometry with zero impulses; ordinary fallback Contacts retain their
+	// existing combined geometry/impulse semantics.
+	ImpulseContacts []ContactData
+	ContactEvents   ContactEvents
+	SensorEvents    SensorEvents
+	JointEvents     JointEvents
 }
 
 // Scratch is private to contact collection; samples never reference its storage.
@@ -84,6 +94,13 @@ func motionCopyEvents(id WorldID, sample *MotionStepSample, scratch *observedCon
 		a, b := &w.shapes[contact.shapeIdA], &w.shapes[contact.shapeIdB]
 		end := offset + len(contact.manifolds)
 		copy(manifolds[offset:end], contact.manifolds)
+		if !observedContactSolved(w, contact) {
+			for mi := offset; mi < end; mi++ {
+				for pi := range manifolds[mi].Points[:manifolds[mi].PointCount] {
+					manifolds[mi].Points[pi].TotalNormalImpulse = 0
+				}
+			}
+		}
 		// Limiting capacity also keeps a caller's append from altering its next contact.
 		sample.Contacts[i] = ContactData{
 			ContactId: ContactID{contact.contactId + 1, w.worldId, 0, contact.generation},
@@ -93,4 +110,29 @@ func motionCopyEvents(id WorldID, sample *MotionStepSample, scratch *observedCon
 		}
 		offset = end
 	}
+}
+
+// Capture membership before sleeping/waking can move contacts between sets.
+func captureObservedSolvedContacts(w *world) {
+	if !w.toiContinuation.enabled && !w.toiContinuation.observing {
+		return
+	}
+	if w.toiContinuation.solvedContacts == nil {
+		w.toiContinuation.solvedContacts = map[int32]uint32{}
+	}
+	for i := range w.constraintGraph.colors {
+		color := &w.constraintGraph.colors[i]
+		for _, spec := range color.contacts {
+			c := &w.contacts[spec.contactId]
+			w.toiContinuation.solvedContacts[c.contactId] = c.generation
+		}
+		for _, spec := range color.convexContacts {
+			c := &w.contacts[spec]
+			w.toiContinuation.solvedContacts[c.contactId] = c.generation
+		}
+	}
+}
+func observedContactSolved(w *world, c *contact) bool {
+	g, ok := w.toiContinuation.solvedContacts[c.contactId]
+	return ok && g == c.generation
 }

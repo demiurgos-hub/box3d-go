@@ -306,20 +306,9 @@ func getRevoluteJointTorque(world *world, base *jointSim) Vec3 {
 func prepareRevoluteJoint(base *jointSim, context *stepContext) {
 	assert(base.typ == RevoluteJoint, "base->type == b3_revoluteJoint")
 
-	world := context.world
-
-	bodyA := arrayGet(world.bodies, int(base.bodyIdA))
-	bodyB := arrayGet(world.bodies, int(base.bodyIdB))
-
-	assert(bodyA.setIndex == awakeSet || bodyB.setIndex == awakeSet, "bodyA->setIndex == b3_awakeSet || bodyB->setIndex == b3_awakeSet")
-	setA := arrayGet(world.solverSets, int(bodyA.setIndex))
-	setB := arrayGet(world.solverSets, int(bodyB.setIndex))
-
-	localIndexA := bodyA.localIndex
-	localIndexB := bodyB.localIndex
-
-	bodySimA := arrayGet(setA.bodySims, int(localIndexA))
-	bodySimB := arrayGet(setB.bodySims, int(localIndexB))
+	bodySimA, localIndexA := jointBodyForContext(context, base.bodyIdA)
+	bodySimB, localIndexB := jointBodyForContext(context, base.bodyIdB)
+	assert(localIndexA != NullIndex || localIndexB != NullIndex, "joint has a solver body")
 
 	base.invMassA = bodySimA.invMass
 	base.invMassB = bodySimB.invMass
@@ -330,14 +319,8 @@ func prepareRevoluteJoint(base *jointSim, context *stepContext) {
 	base.fixedRotation = Det(invInertiaSum) < 1000.0*fltMin
 
 	joint := &base.revoluteJoint
-	joint.indexA = NullIndex
-	if bodyA.setIndex == awakeSet {
-		joint.indexA = localIndexA
-	}
-	joint.indexB = NullIndex
-	if bodyB.setIndex == awakeSet {
-		joint.indexB = localIndexB
-	}
+	joint.indexA = localIndexA
+	joint.indexB = localIndexB
 
 	// Compute joint anchor frames with world space rotation, relative to center of mass
 	// Avoid round-off here as much as possible.
@@ -372,9 +355,9 @@ func prepareRevoluteJoint(base *jointSim, context *stepContext) {
 			0.5, RotateVector(joint.frameA.Q, Add(MulSV(relQ.S, Vec3AxisY), Cross(relQ.V, Vec3AxisY))))
 	}
 
-	joint.springSoftness = makeSoft(joint.hertz, joint.dampingRatio, context.h)
+	joint.springSoftness = makeSoft(joint.hertz, joint.dampingRatio, jointIntervalH(context))
 
-	if context.enableWarmStarting == false {
+	if context.enableWarmStarting == false && !context.retainJointImpulses {
 		joint.linearImpulse = Vec3Zero
 		joint.perpImpulse = Vec2{0.0, 0.0}
 		joint.motorImpulse = 0.0
@@ -502,7 +485,7 @@ func solveRevoluteJoint(base *jointSim, context *stepContext, useBias bool) {
 		if joint.enableMotor {
 			cdot := axialCdot - joint.motorSpeed
 			oldImpulse := joint.motorImpulse
-			maxImpulse := float32(joint.maxMotorTorque * context.h)
+			maxImpulse := float32(joint.maxMotorTorque * jointIntervalH(context))
 			deltaImpulse := ClampFloat(float32(-joint.axialMass*cdot), -maxImpulse-oldImpulse, maxImpulse-oldImpulse)
 			joint.motorImpulse = oldImpulse + deltaImpulse
 

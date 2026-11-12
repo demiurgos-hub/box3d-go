@@ -1455,6 +1455,12 @@ func (jointId JointID) IsAwake() bool {
 // getJointReaction is b3GetJointReaction.
 // PORT: the force and torque out-parameters are the return values.
 func getJointReaction(world *world, sim *jointSim, invTimeStep float32) (force float32, torque float32) {
+	return getJointReactionAt(world, sim, invTimeStep, nil)
+}
+
+// Local continuation evaluates spherical reaction axes at its prepared impact
+// pose; ordinary native callers retain their original world-transform lookup.
+func getJointReactionAt(world *world, sim *jointSim, invTimeStep float32, transform func(int32) WorldTransform) (force float32, torque float32) {
 	var linearImpulse float32 = 0.0
 	var angularImpulse float32 = 0.0
 
@@ -1502,8 +1508,14 @@ func getJointReaction(world *world, sim *jointSim, invTimeStep float32) (force f
 		joint := &sim.sphericalJoint
 		linearImpulse = Length(joint.linearImpulse)
 
-		xfA := getBodyTransform(world, int(sim.bodyIdA))
-		xfB := getBodyTransform(world, int(sim.bodyIdB))
+		var xfA, xfB WorldTransform
+		if transform == nil {
+			xfA = getBodyTransform(world, int(sim.bodyIdA))
+			xfB = getBodyTransform(world, int(sim.bodyIdB))
+		} else {
+			xfA = transform(sim.bodyIdA)
+			xfB = transform(sim.bodyIdB)
+		}
 		qA := MulQuat(xfA.Q, sim.localFrameA.Q)
 		qB := MulQuat(xfB.Q, sim.localFrameB.Q)
 

@@ -297,24 +297,9 @@ func getDistanceJointForce(world *world, base *jointSim) Vec3 {
 func prepareDistanceJoint(base *jointSim, context *stepContext) {
 	assert(base.typ == DistanceJoint, "base->type == b3_distanceJoint")
 
-	// chase body id to the solver set where the body lives
-	idA := int(base.bodyIdA)
-	idB := int(base.bodyIdB)
-
-	world := context.world
-	bodyA := arrayGet(world.bodies, idA)
-	bodyB := arrayGet(world.bodies, idB)
-
-	assert(bodyA.setIndex == awakeSet || bodyB.setIndex == awakeSet, "bodyA->setIndex == b3_awakeSet || bodyB->setIndex == b3_awakeSet")
-
-	setA := arrayGet(world.solverSets, int(bodyA.setIndex))
-	setB := arrayGet(world.solverSets, int(bodyB.setIndex))
-
-	localIndexA := bodyA.localIndex
-	localIndexB := bodyB.localIndex
-
-	bodySimA := arrayGet(setA.bodySims, int(localIndexA))
-	bodySimB := arrayGet(setB.bodySims, int(localIndexB))
+	bodySimA, localIndexA := jointBodyForContext(context, base.bodyIdA)
+	bodySimB, localIndexB := jointBodyForContext(context, base.bodyIdB)
+	assert(localIndexA != NullIndex || localIndexB != NullIndex, "joint has a solver body")
 
 	mA := bodySimA.invMass
 	iA := bodySimA.invInertiaWorld
@@ -328,14 +313,8 @@ func prepareDistanceJoint(base *jointSim, context *stepContext) {
 
 	joint := &base.distanceJoint
 
-	joint.indexA = NullIndex
-	if bodyA.setIndex == awakeSet {
-		joint.indexA = localIndexA
-	}
-	joint.indexB = NullIndex
-	if bodyB.setIndex == awakeSet {
-		joint.indexB = localIndexB
-	}
+	joint.indexA = localIndexA
+	joint.indexB = localIndexB
 
 	// initial anchors in world space
 	joint.anchorA = RotateVector(bodySimA.transform.Q, Sub(base.localFrameA.P, bodySimA.localCenter))
@@ -356,9 +335,9 @@ func prepareDistanceJoint(base *jointSim, context *stepContext) {
 		joint.axialMass = 1.0 / k
 	}
 
-	joint.distanceSoftness = makeSoft(joint.hertz, joint.dampingRatio, context.h)
+	joint.distanceSoftness = makeSoft(joint.hertz, joint.dampingRatio, jointIntervalH(context))
 
-	if context.enableWarmStarting == false {
+	if context.enableWarmStarting == false && !context.retainJointImpulses {
 		joint.impulse = 0.0
 		joint.lowerImpulse = 0.0
 		joint.upperImpulse = 0.0
@@ -462,7 +441,7 @@ func solveDistanceJoint(base *jointSim, context *stepContext, useBias bool) {
 			m := float32(joint.distanceSoftness.massScale * joint.axialMass)
 			oldImpulse := joint.impulse
 			impulse := float32(-m*(Cdot+bias)) - float32(joint.distanceSoftness.impulseScale*oldImpulse)
-			h := context.h
+			h := jointIntervalH(context)
 			joint.impulse = ClampFloat(joint.impulse+impulse, float32(joint.lowerSpringForce*h), float32(joint.upperSpringForce*h))
 			impulse = joint.impulse - oldImpulse
 
@@ -542,7 +521,7 @@ func solveDistanceJoint(base *jointSim, context *stepContext, useBias bool) {
 			Cdot := Dot(axis, vr)
 			impulse := float32(joint.axialMass * (joint.motorSpeed - Cdot))
 			oldImpulse := joint.motorImpulse
-			maxImpulse := float32(context.h * joint.maxMotorForce)
+			maxImpulse := float32(jointIntervalH(context) * joint.maxMotorForce)
 			joint.motorImpulse = ClampFloat(joint.motorImpulse+impulse, -maxImpulse, maxImpulse)
 			impulse = joint.motorImpulse - oldImpulse
 

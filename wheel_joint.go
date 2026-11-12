@@ -477,25 +477,9 @@ func getWheelJointTorque(world *world, base *jointSim) Vec3 {
 func prepareWheelJoint(base *jointSim, context *stepContext) {
 	assert(base.typ == WheelJoint, "base->type == b3_wheelJoint")
 
-	// chase body id to the solver set where the body lives
-	idA := int(base.bodyIdA)
-	idB := int(base.bodyIdB)
-
-	world := context.world
-
-	bodyA := arrayGet(world.bodies, idA)
-	bodyB := arrayGet(world.bodies, idB)
-
-	assert(bodyA.setIndex == awakeSet || bodyB.setIndex == awakeSet,
-		"bodyA->setIndex == b3_awakeSet || bodyB->setIndex == b3_awakeSet")
-	setA := arrayGet(world.solverSets, int(bodyA.setIndex))
-	setB := arrayGet(world.solverSets, int(bodyB.setIndex))
-
-	localIndexA := bodyA.localIndex
-	localIndexB := bodyB.localIndex
-
-	bodySimA := arrayGet(setA.bodySims, int(localIndexA))
-	bodySimB := arrayGet(setB.bodySims, int(localIndexB))
+	bodySimA, localIndexA := jointBodyForContext(context, base.bodyIdA)
+	bodySimB, localIndexB := jointBodyForContext(context, base.bodyIdB)
+	assert(localIndexA != NullIndex || localIndexB != NullIndex, "joint has a solver body")
 
 	base.invMassA = bodySimA.invMass
 	base.invMassB = bodySimB.invMass
@@ -507,14 +491,8 @@ func prepareWheelJoint(base *jointSim, context *stepContext) {
 
 	joint := &base.wheelJoint
 
-	joint.indexA = NullIndex
-	if bodyA.setIndex == awakeSet {
-		joint.indexA = localIndexA
-	}
-	joint.indexB = NullIndex
-	if bodyB.setIndex == awakeSet {
-		joint.indexB = localIndexB
-	}
+	joint.indexA = localIndexA
+	joint.indexB = localIndexB
 
 	// Compute joint anchor frames with world space rotation, relative to center of mass
 	joint.frameA.Q = MulQuat(bodySimA.transform.Q, base.localFrameA.Q)
@@ -546,8 +524,8 @@ func prepareWheelJoint(base *jointSim, context *stepContext) {
 		}
 	}
 
-	joint.suspensionSoftness = makeSoft(joint.suspensionHertz, joint.suspensionDampingRatio, context.h)
-	joint.steeringSoftness = makeSoft(joint.steeringHertz, joint.steeringDampingRatio, context.h)
+	joint.suspensionSoftness = makeSoft(joint.suspensionHertz, joint.suspensionDampingRatio, jointIntervalH(context))
+	joint.steeringSoftness = makeSoft(joint.steeringHertz, joint.steeringDampingRatio, jointIntervalH(context))
 
 	{
 		// Rotation axis is the z-axis of body A.
@@ -579,7 +557,7 @@ func prepareWheelJoint(base *jointSim, context *stepContext) {
 		}
 	}
 
-	if context.enableWarmStarting == false {
+	if context.enableWarmStarting == false && !context.retainJointImpulses {
 		joint.linearImpulse = Vec2{0.0, 0.0}
 		joint.angularImpulse = Vec2{0.0, 0.0}
 		joint.spinImpulse = 0.0
@@ -765,7 +743,7 @@ func solveWheelJoint(base *jointSim, context *stepContext, useBias bool) {
 		cdot := Dot(Sub(wB, wA), spinAxis) - joint.spinSpeed
 		impulse := float32(-joint.spinMass * cdot)
 		oldImpulse := joint.spinImpulse
-		maxImpulse := float32(context.h * joint.maxSpinTorque)
+		maxImpulse := float32(jointIntervalH(context) * joint.maxSpinTorque)
 		joint.spinImpulse = ClampFloat(joint.spinImpulse+impulse, -maxImpulse, maxImpulse)
 		impulse = joint.spinImpulse - oldImpulse
 
@@ -809,7 +787,7 @@ func solveWheelJoint(base *jointSim, context *stepContext, useBias bool) {
 			cdot := Dot(steeringAxis, Sub(wB, wA))
 			oldImpulse := joint.steeringSpringImpulse
 			impulse := float32(float32(-massScale*joint.steeringMass)*(cdot+bias)) - float32(impulseScale*oldImpulse)
-			maxImpulse := float32(context.h * joint.maxSteeringTorque)
+			maxImpulse := float32(jointIntervalH(context) * joint.maxSteeringTorque)
 			joint.steeringSpringImpulse = ClampFloat(oldImpulse+impulse, -maxImpulse, maxImpulse)
 			impulse = joint.steeringSpringImpulse - oldImpulse
 

@@ -354,20 +354,9 @@ func getPrismaticJointTorque(world *world, base *jointSim) Vec3 {
 func preparePrismaticJoint(base *jointSim, context *stepContext) {
 	assert(base.typ == PrismaticJoint, "base->type == b3_prismaticJoint")
 
-	world := context.world
-
-	bodyA := arrayGet(world.bodies, int(base.bodyIdA))
-	bodyB := arrayGet(world.bodies, int(base.bodyIdB))
-
-	assert(bodyA.setIndex == awakeSet || bodyB.setIndex == awakeSet, "bodyA->setIndex == b3_awakeSet || bodyB->setIndex == b3_awakeSet")
-	setA := arrayGet(world.solverSets, int(bodyA.setIndex))
-	setB := arrayGet(world.solverSets, int(bodyB.setIndex))
-
-	localIndexA := bodyA.localIndex
-	localIndexB := bodyB.localIndex
-
-	bodySimA := arrayGet(setA.bodySims, int(localIndexA))
-	bodySimB := arrayGet(setB.bodySims, int(localIndexB))
+	bodySimA, localIndexA := jointBodyForContext(context, base.bodyIdA)
+	bodySimB, localIndexB := jointBodyForContext(context, base.bodyIdB)
+	assert(localIndexA != NullIndex || localIndexB != NullIndex, "joint has a solver body")
 
 	base.invMassA = bodySimA.invMass
 	base.invMassB = bodySimB.invMass
@@ -378,14 +367,8 @@ func preparePrismaticJoint(base *jointSim, context *stepContext) {
 	base.fixedRotation = Det(invInertiaSum) < 1000.0*fltMin
 
 	joint := &base.prismaticJoint
-	joint.indexA = NullIndex
-	if bodyA.setIndex == awakeSet {
-		joint.indexA = localIndexA
-	}
-	joint.indexB = NullIndex
-	if bodyB.setIndex == awakeSet {
-		joint.indexB = localIndexB
-	}
+	joint.indexA = localIndexA
+	joint.indexB = localIndexB
 
 	// Compute joint anchor frames with world space rotation, relative to center of mass
 	joint.frameA.Q = MulQuat(bodySimA.transform.Q, base.localFrameA.Q)
@@ -402,9 +385,9 @@ func preparePrismaticJoint(base *jointSim, context *stepContext) {
 	joint.perpAxisY = matrixA.Cy
 	joint.perpAxisZ = matrixA.Cz
 
-	joint.springSoftness = makeSoft(joint.hertz, joint.dampingRatio, context.h)
+	joint.springSoftness = makeSoft(joint.hertz, joint.dampingRatio, jointIntervalH(context))
 
-	if context.enableWarmStarting == false {
+	if context.enableWarmStarting == false && !context.retainJointImpulses {
 		joint.perpImpulse = Vec2{0.0, 0.0}
 		joint.angularImpulse = Vec3{0.0, 0.0, 0.0}
 		joint.motorImpulse = 0.0
@@ -556,7 +539,7 @@ func solvePrismaticJoint(base *jointSim, context *stepContext, useBias bool) {
 
 		deltaImpulse := float32(-axialMass * cdot)
 		newImpulse := joint.motorImpulse + deltaImpulse
-		maxImpulse := float32(joint.maxMotorForce * context.h)
+		maxImpulse := float32(joint.maxMotorForce * jointIntervalH(context))
 		newImpulse = ClampFloat(newImpulse, -maxImpulse, maxImpulse)
 		deltaImpulse = newImpulse - joint.motorImpulse
 		joint.motorImpulse = newImpulse
