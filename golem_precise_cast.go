@@ -5,6 +5,8 @@ package box3d
 // rest separation or LinearSlop bias. Tolerance is a positive distance bound;
 // it does not alter ordinary CastShape, CastMover or solver CCD semantics.
 // False reports invalid inputs or numerical nonconvergence, never a clear path.
+// Callback fractions clip subsequent traversal; equal-fraction hits remain
+// eligible. Callback order is unspecified, as with the native cast queries.
 // This additive query is not supported by upstream recording format.
 func (worldId WorldID) PreciseCastShape(origin Pos, proxy *ShapeProxy, translation Vec3, filter QueryFilter, tolerance float32, callback CastResultFcn, context any) (TreeStats, bool) {
 	world := getUnlockedWorldFromId(worldId)
@@ -12,23 +14,36 @@ func (worldId WorldID) PreciseCastShape(origin Pos, proxy *ShapeProxy, translati
 		return TreeStats{}, false
 	}
 	bounds := preciseProxyBounds(proxy, translation, tolerance)
-	worldBounds := AABB{Add(ToVec3(origin), bounds.LowerBound), Add(ToVec3(origin), bounds.UpperBound)}
 	padding := float32(4 * fltEpsilon * MaxFloat(1, MaxFloat(AbsFloat(origin.X), MaxFloat(AbsFloat(origin.Y), AbsFloat(origin.Z)))))
-	worldBounds.LowerBound = Sub(worldBounds.LowerBound, Vec3{padding, padding, padding})
-	worldBounds.UpperBound = Add(worldBounds.UpperBound, Vec3{padding, padding, padding})
+	localBox := preciseProxyBounds(proxy, Vec3Zero, tolerance)
+	worldBox := OffsetAABB(localBox, origin)
+	worldBox.LowerBound = Sub(worldBox.LowerBound, Vec3{padding, padding, padding})
+	worldBox.UpperBound = Add(worldBox.UpperBound, Vec3{padding, padding, padding})
 	c := preciseCastScratch.get()
 	if c.visit == nil {
 		c.visit = c.visitLeaf
 	}
 	c.origin, c.proxy, c.translation = origin, proxy, translation
+	c.world = world
 	c.filter, c.tolerance, c.bounds = filter, tolerance, bounds
 	c.callback, c.context, c.valid, c.maxFraction = callback, context, true, 1
 	defer releasePreciseCast(c)
-	stats := worldId.OverlapAABB(worldBounds, filter, preciseCastCandidate, c)
+	input := BoxCastInput{Box: worldBox, Translation: translation, MaxFraction: 1}
+	var stats TreeStats
+	for i := 0; i < int(BodyTypeCount); i++ {
+		current := world.broadPhase.trees[i].BoxCast(&input, filter.MaskBits, false, preciseCastTreeCandidate, c)
+		stats.NodeVisits += current.NodeVisits
+		stats.LeafVisits += current.LeafVisits
+		if !c.valid || c.stopped {
+			break
+		}
+		input.MaxFraction = c.maxFraction
+	}
 	return stats, c.valid
 }
 
 type preciseCastContext struct {
+	world       *world
 	origin      Pos
 	proxy       *ShapeProxy
 	translation Vec3
@@ -38,6 +53,7 @@ type preciseCastContext struct {
 	callback    CastResultFcn
 	context     any
 	valid       bool
+	stopped     bool
 	maxFraction float32
 	best        CastOutput
 	child       int32
@@ -45,6 +61,19 @@ type preciseCastContext struct {
 }
 
 var preciseCastScratch scratchPool[preciseCastContext]
+
+func preciseCastTreeCandidate(_ *BoxCastInput, _ int, userData uint64, context any) float32 {
+	c := context.(*preciseCastContext)
+	s := &c.world.shapes[int(userData)]
+	if !shouldQueryCollide(&s.filter, &c.filter) {
+		return c.maxFraction
+	}
+	id := ShapeID{s.id + 1, c.world.worldId, s.generation}
+	if !preciseCastCandidate(id, c) {
+		return 0
+	}
+	return c.maxFraction
+}
 
 func preciseCastCandidate(id ShapeID, context any) bool {
 	c := context.(*preciseCastContext)
@@ -54,13 +83,22 @@ func preciseCastCandidate(id ShapeID, context any) bool {
 		return false
 	}
 	c.best, c.child = CastOutput{Fraction: 1, TriangleIndex: -1}, -1
-	visitQueryGeometry(s, transform, c.bounds, c.visit)
+	bounds := c.bounds
+	if c.maxFraction < 1 {
+		// Clip only traversal, never the translation used by the leaf solver.
+		// Padding covers prefix multiplication and transformed-bound rounding;
+		// it does not change the geometric hit tolerance or reported witnesses.
+		magnitude := MaxFloat(1, MaxFloat(Length(c.bounds.LowerBound), MaxFloat(Length(c.bounds.UpperBound), Length(transform.P))))
+		bounds = preciseProxyBounds(c.proxy, MulSV(c.maxFraction, c.translation), c.tolerance+16*fltEpsilon*magnitude)
+	}
+	visitQueryGeometry(s, transform, bounds, c.visit)
 	if !c.valid {
 		return false
 	}
 	if c.best.Hit && c.best.Fraction <= c.maxFraction {
 		material := getShapeUserMaterialId(s, int(c.child), int(c.best.TriangleIndex))
 		fraction := c.callback(id, OffsetPos(c.origin, c.best.Point), c.best.Normal, c.best.Fraction, material, int(c.best.TriangleIndex), int(c.child), c.context)
+		c.stopped = fraction == 0
 		if fraction > 0 && fraction < c.maxFraction {
 			c.maxFraction = fraction
 		}

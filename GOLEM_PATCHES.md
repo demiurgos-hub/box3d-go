@@ -6,6 +6,33 @@ Original MIT attribution and port notes remain intact. This fork uses Go 1.27.1
 and float32 positions, geometry and simulation. It does not change default cast semantics
 or implement character pushing through manual impulses.
 
+## Precise query prefix pruning
+
+`PreciseCastShape` now uses the existing native dynamic-tree `BoxCast` traversal
+instead of visiting every broadphase leaf in the full swept AABB. Positive
+callback fractions monotonically shorten later tree traversal and the bounds
+used for mesh/compound leaf discovery. Equal-fraction candidates remain eligible,
+including different body-type trees, compound children and mesh triangle ties.
+The narrowphase retains the original complete translation, tolerance and
+arithmetic, so pruning does not rescale reported fractions or witnesses.
+Only traversal bounds receive conservative float32 rounding padding.
+
+Callback order is unspecified, as for native casts. Negative callback fractions
+ignore the reported shape without shortening the remaining search; one leaves
+the current bound unchanged. Zero terminates the entire world cast, matching the
+native cast contract; the previous overlap-wrapper implementation stopped only
+the current body-type tree. An initial zero-fraction hit does not itself stop
+traversal when the callback continues. Default upstream cast APIs are unchanged.
+
+Focused tests retain the old full-sweep traversal as an unculled oracle and
+compare exact hit records, nearest deterministic identities, material IDs,
+backface policy and mesh/compound feature ties at 0, 768 and 2304 metres. A
+64-shape case checks candidate reduction without dropping its equal-fraction
+pair. Existing precise terrain, initial-overlap, nested-reader and concurrent
+query regressions remain part of the compact check. Frozen evidence lives under
+`precise-prefix-20261112-01` in the external validation workspace; this establishes
+query equivalence for those cases, not workload capacity or release readiness.
+
 ## Unreduced hulls, widened topology and small mesh triangles
 
 `CreateHullUnreduced` accepts raw point clouds larger than the native output
