@@ -50,22 +50,16 @@ func (id ShapeID) PairPenetration(other ShapeID) (PairPenetrationResult, bool) {
 				if separation > 0 {
 					return
 				}
-				if separation == 0 {
-					if !result.Penetrating {
-						result.Touching = true
-					}
-					return
-				}
 				featureA := QueryFeature{la.child, la.triangleIndex, fa}
 				featureB := QueryFeature{lb.child, lb.triangleIndex, fb}
 				depth := -separation
-				if depth < result.Depth || (depth == result.Depth && !queryPairFeatureLess(featureA, featureB, result.FeatureA, result.FeatureB)) {
+				if depth < result.Depth || (depth == result.Depth && (result.Touching || result.Penetrating) && !queryPairFeatureLess(featureA, featureB, result.FeatureA, result.FeatureB)) {
 					return
 				}
 				result = PairPenetrationResult{
 					PointA: OffsetPos(origin, MulAdd(point, 0.5*depth, normal)),
 					PointB: OffsetPos(origin, MulSub(point, 0.5*depth, normal)),
-					Normal: normal, Depth: depth, Penetrating: true, FeatureA: featureA, FeatureB: featureB,
+					Normal: normal, Depth: depth, Touching: separation == 0, Penetrating: separation < 0, FeatureA: featureA, FeatureB: featureB,
 					MaterialA: getShapeUserMaterialId(a, int(la.child), int(la.triangleIndex)),
 					MaterialB: getShapeUserMaterialId(b, int(lb.child), int(lb.triangleIndex)),
 				}
@@ -188,6 +182,7 @@ func collideQueryLeaves(a, b queryLeaf, backFaces bool, emit func(point, normal 
 				}
 			}
 		}
+		queryRefineTriangleFace(&m, tri[:], b)
 	} else {
 		switch {
 		case a.kind == HullShape && b.kind == HullShape:

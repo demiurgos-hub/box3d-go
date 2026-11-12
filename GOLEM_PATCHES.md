@@ -181,6 +181,20 @@ and rotated-Y constraints through several revolutions while applying a transvers
 load, checking alignment and finite torque. Engine fixtures also verify that an
 upright Y-axis constraint permits yaw while resisting tilt.
 
+## Exact triangle-face touching in geometric queries
+
+Solver-style reciprocal normalization could leave a flat triangle normal one
+float32 ULP short of unit length, reporting positive penetration for an exactly
+touching capsule. Query-only sphere/capsule face contacts now use a scaled cross
+product, direct component division and local plane distance. Poses, geometry and
+the calculation remain float32. No overlap tolerance, upstream cast or solver
+manifold is changed. Pair queries also retain feature identity and witnesses for
+touching contacts, instead of returning a classification with empty identity.
+
+`TestGolemTriangleFaceDoesNotInventPlacementPenetration` reproduces the rejected
+workload spawn on its authored mesh grid, then tests exact touch, positive gaps,
+10 micrometre overlap, and the 0.1/1 mm reference thresholds for spheres/capsules.
+
 ## Motion cadence and constraint convergence
 
 `StepMotion` defaults to a maximum 1/240-second internal step, four velocity
