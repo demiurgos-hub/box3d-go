@@ -67,6 +67,7 @@ type MotionBodySample struct {
 // Observers run with the world locked and must not mutate it. Returning an error
 // aborts after this step. Bodies contains enabled nonstatic bodies only.
 type MotionStepSample struct {
+	SpeculativeCCD                    SpeculativeCCDStats
 	Index                             int
 	Delta, StartFraction, EndFraction float32
 	Bodies                            []MotionBodySample

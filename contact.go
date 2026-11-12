@@ -795,9 +795,11 @@ func updateConvexContact(world *world, workerIndex int, contact *contact, shapeA
 
 		// this call assumes thread safety
 		point := OffsetPos(xfA.P, contact.manifolds[0].Points[0].AnchorA)
+		point = predictiveWorldPoint(world, contact, point)
 		normal := contact.manifolds[0].Normal
 		touching = world.preSolveFcn(shapeIdA, shapeIdB, point, normal, world.preSolveContext)
 		if touching == false {
+			rejectPredictiveContact(world, contact)
 			// disable contact
 			freeManifolds(world, contact.manifolds, int(contact.manifoldCount))
 			contact.manifolds = nil
@@ -923,6 +925,9 @@ func updateContact(world *world, workerIndex int, contact *contact, shapeA *shap
 		touching = updateConvexContact(world, workerIndex, contact, shapeA, xfA, shapeB, xfB, flip, arena)
 	}
 
+	if !touching && updatePredictiveContact(world, workerIndex, contact, shapeA, shapeB, arena) {
+		return true
+	}
 	if touching {
 		centerA := RotateVector(xfA.Q, localCenterA)
 		centerB := RotateVector(xfB.Q, localCenterB)

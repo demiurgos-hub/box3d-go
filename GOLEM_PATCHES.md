@@ -6,6 +6,51 @@ Original MIT attribution and port notes remain intact. This fork uses Go 1.27.1
 and float32 positions, geometry and simulation. It does not change default cast semantics
 or implement character pushing through manual impulses.
 
+## Opt-in native speculative CCD
+
+`WorldID.SetSpeculativeCCD` adds targeted moving-pair prediction to native
+stepping. It is disabled by default. The engine enables it with its continuous
+world policy; ordinary upstream worlds keep their native scheduling. The normal
+velocity and position integrators predict unconstrained motion on copies,
+including forces, damping, rotation, locks and speed limits. Shapes whose motion
+exceeds the native safety-factor extent threshold query a temporary swept-bounds
+tree; moving meshes always participate because their inner extent cannot safely
+represent a thin surface. Candidate pairs are deduplicated and sorted before
+the native time-of-impact call. Sensors and collision filters retain their roles.
+
+An upcoming hit supplies a native contact manifold to the normal constraint
+solver. Future contact generation uses nearby pair coordinates and private
+future AABBs, retaining mesh features/materials and avoiding distant-world COM
+rounding. Contact anchors are returned to their start orientations and carry
+the initial separation along the predicted normal. Response, friction and
+equal/opposite impulses remain solver-owned. This adds no adaptive time steps,
+global penetration certificate or manually applied push impulse. Native static
+sweeps remain separate. Portable compounds use individual native convex leaves;
+direct native CompoundShape predictive pairs keep upstream coverage.
+
+Nonconvergent TOI, absent manifolds and incompatible rotating predictive planes
+are explicit errors. `StepObserved` still returns the attempted step's owned
+body/contact sample before propagating the error; a transactional engine must
+fault the complete frame. Raw Step callers must check `SpeculativeCCDError`.
+Pre-solve rejection is a valid contact filter, and its callback receives world
+coordinates. Predictive manifolds and native pair-begin notifications do not
+establish geometric touching or a gameplay hit. The adapter filters separating
+zero-impulse contacts and observes sensors independently.
+
+`SpeculativeCCDStats` counts unique swept candidates, filtered moving-pair TOI
+calls and predictive manifolds for the attempted step; it excludes built-in
+static-sweep work. Upstream recording refuses this mode because the recording
+format does not encode the policy. Engine portable checkpoints reconstruct it
+from their versioned world configuration instead.
+
+Regressions cover fast crossing spheres, translating/rotating meshes, sleeping
+targets, common motion, perpendicular crossing paths, filters, pre-solve
+rejection, contact reuse, material/triangle identity, nonzero local COM, callback
+coordinates at 0 and +/-2304m, force-duration parity and worker repeatability.
+Focused immutable-source scalar, SIMD and race checks are retained under
+`speculative-geometry-20261112-01` in the external validation workspace. These
+checks do not qualify the full workload or every solver-induced acceleration.
+
 ## Native post-TOI contact response
 
 The pinned upstream C `src/solver.c` clips a time-of-impact pose but retains its

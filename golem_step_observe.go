@@ -45,10 +45,14 @@ func (id WorldID) StepObserved(dt float32, options ObservedStepOptions, observe 
 			sample.Bodies = append(sample.Bodies, MotionBodySample{Body: bodyID, Start: bodyID.GetTransform()})
 		}
 	}
-	motionInvalidateMovingMeshCaches(w)
+	if !w.speculativeCCD.enabled {
+		motionInvalidateMovingMeshCaches(w)
+	}
 	id.Step(dt, 1)
+	sample.SpeculativeCCD = id.GetSpeculativeCCDStats()
+	stepError := id.SpeculativeCCDError()
 	if observe == nil {
-		return nil
+		return stepError
 	}
 	for i := range sample.Bodies {
 		body := &sample.Bodies[i]
@@ -58,5 +62,5 @@ func (id WorldID) StepObserved(dt float32, options ObservedStepOptions, observe 
 	}
 	var scratch motionStepScratch
 	motionCopyEvents(id, &sample, &scratch)
-	return motionObserve(w, sample, observe)
+	return errors.Join(stepError, motionObserve(w, sample, observe))
 }

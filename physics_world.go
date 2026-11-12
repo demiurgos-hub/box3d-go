@@ -122,6 +122,7 @@ type stepScratch struct {
 // The world struct manages all physics entities, dynamic simulation,  and asynchronous queries.
 // The world also contains efficient memory management facilities.
 type world struct {
+	speculativeCCD  speculativeCCDScratch
 	stack           stack
 	broadPhase      broadPhase
 	constraintGraph constraintGraph
@@ -909,7 +910,7 @@ func collideTask(startIndex, endIndex, workerIndex int, context any) {
 
 		// Do proxies still overlap?
 		overlap := overlapV(&fatAABBs[shapeIdA], &fatAABBs[shapeIdB])
-		if overlap == false {
+		if overlap == false && predictiveContactFor(world, contact) == nil {
 			// This contact will be destroyed
 			contact.flags |= simDisjoint
 			contact.flags &^= simTouchingFlag
@@ -931,7 +932,7 @@ func collideTask(startIndex, endIndex, workerIndex int, context any) {
 		transformA := bodySimA.transform
 		transformB := bodySimB.transform
 
-		isFast := ((bodySimA.flags | bodySimB.flags) & isFast) != 0
+		isFast := ((bodySimA.flags|bodySimB.flags)&isFast) != 0 || predictiveContactFor(world, contact) != nil
 
 		recycleTolerance := recycleDistanceNonTouching
 		if wasTouching {
@@ -1353,6 +1354,7 @@ func (worldId WorldID) Step(timeStep float32, subStepCount int) {
 	{
 		pairTicks := GetTicks()
 		updateBroadPhasePairs(world)
+		prepareSpeculativeCCD(world, timeStep, subStepCount)
 		world.profile.Pairs = GetMilliseconds(pairTicks)
 	}
 
@@ -1400,6 +1402,7 @@ func (worldId WorldID) Step(timeStep float32, subStepCount int) {
 	if timeStep > 0.0 {
 		solveTicks := GetTicks()
 		solve(world, context)
+		finishSpeculativeCCD(world)
 		world.profile.Solve = GetMilliseconds(solveTicks)
 	}
 
@@ -2530,12 +2533,13 @@ func (worldId WorldID) GetWorkerCount() int {
 }
 
 // StartRecording is b3World_StartRecording: begin recording into a recording created by
-// CreateRecording. Must be called at a step boundary.
+// CreateRecording. Must be called at a step boundary. Worlds using the opt-in
+// speculative CCD extension are refused because that mode is not in the format.
 func (worldId WorldID) StartRecording(recording *Recording) {
 	// Must be a step boundary, so refuse a locked world
 	world := getUnlockedWorldFromId(worldId)
 
-	if world == nil || recording == nil || world.recording != nil {
+	if world == nil || recording == nil || world.recording != nil || world.speculativeCCD.enabled {
 		return
 	}
 
