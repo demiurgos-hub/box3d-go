@@ -214,7 +214,10 @@ func (e *toiEngine) shapeFast(s *shape) bool {
 }
 func toiShapeFast(s *shape, sw Sweep, safetyFactor float32) bool {
 	chord := 2 * Length(InvMulQuat(sw.Q1, sw.Q2).V)
-	travel := Length(Sub(sw.C2, sw.C1)) + chord*toiRotationRadius(s, sw.LocalCenter)
+	travel := Length(Sub(sw.C2, sw.C1))
+	if chord != 0 {
+		travel += chord * toiRotationRadius(s, sw.LocalCenter)
+	}
 	limit := computeShapeMinExtent(s, s.localCentroid) * safetyFactor
 	if s.typ == MeshShape || s.typ == HeightShape {
 		limit = 0
@@ -493,7 +496,11 @@ func toiBulletFast(sim *bodySim, sweep Sweep, safetyFactor float32) bool {
 	if sim.flags&isBullet == 0 {
 		return false
 	}
-	travel := Length(Sub(sweep.C2, sweep.C1)) + 2*Length(InvMulQuat(sweep.Q1, sweep.Q2).V)*Length(sim.maxExtent)
+	travel := Length(Sub(sweep.C2, sweep.C1))
+	chord := 2 * Length(InvMulQuat(sweep.Q1, sweep.Q2).V)
+	if chord != 0 {
+		travel += chord * Length(sim.maxExtent)
+	}
 	return travel > safetyFactor*sim.minExtent
 }
 

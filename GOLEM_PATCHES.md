@@ -652,3 +652,34 @@ cumulative CPU to `CollideTriangleAndCapsule`, within 2.77 s of mesh contact wor
 The optimization's workload effect remains unmeasured until the next coordinated
 frozen-source run. Focused evidence is retained in `native-rounded-cull-20261112-01`;
 no broad matrix, timing workload or reference regeneration was performed here.
+
+
+## Bounded rounded-contact storage and cached triangle metadata
+
+The rounded mesh contact kernels emit at most one sphere point or two capsule
+points per triangle. Their temporary point buffer now uses that bound plus the
+minimum headroom required by the unchanged four-free-slot survivor-loop guard;
+hull clipping retains its original 32-point capacity. No triangle or valid
+contact is dropped to enforce the reduced allocation. A focused regression runs
+the actual rounded kernels at their maximum point output through the final
+triangle, including single-triangle and full 512-triangle buffers.
+
+Surviving mesh vertices are already present in the transformed survivor buffer.
+The second pass now reads only triangle indices and edge flags, preserving native
+mirrored winding and inverse-concavity mapping without reconstructing vertices.
+Height-field geometry handling, contact recycling policy and all contact thresholds remain
+unchanged. The retained original kernel uses its original allocation and complete
+triangle reconstruction; the pinned-C fixture remains unchanged. Optimized versus
+original full-manifold, material, feature-order and impulse comparisons therefore
+cover both new changes as well as the earlier conservative rounded cull.
+
+Native continuation eligibility still computes its original angular chord and
+thresholds. Only when that computed chord is exactly zero does it avoid evaluating
+the rotation radius multiplied by zero. Nonzero rotation follows identical
+arithmetic and conservative eligibility.
+
+Profile motivation is `capacity-profile-20261112-02/cpu.pprof`: mesh contact point
+buffer allocation/zeroing accounts for 0.64 s CPU and repeated triangle extraction
+for 0.41 s across the captured full workload. Those attribution values are not
+predicted latency savings. Focused evidence belongs in
+`native-mesh-storage-20261112-01`; workload impact requires a later frozen run.

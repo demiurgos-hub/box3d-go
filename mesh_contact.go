@@ -483,11 +483,11 @@ type cluster struct {
 // PORT: const uint16_t* materialMap is a slice; NULL is nil.
 func computeMeshManifolds(world *world, workerIndex int, contact *contact, shapeA *shape, materialMap []uint16,
 	xfA WorldTransform, shapeB *shape, xfB WorldTransform, isFast bool, arena arena) bool {
-	return computeMeshManifoldsWithRoundedCull(world, workerIndex, contact, shapeA, materialMap, xfA, shapeB, xfB, isFast, arena, true)
+	return computeMeshManifoldsWithOptimizations(world, workerIndex, contact, shapeA, materialMap, xfA, shapeB, xfB, isFast, arena, true)
 }
 
-func computeMeshManifoldsWithRoundedCull(world *world, workerIndex int, contact *contact, shapeA *shape, materialMap []uint16,
-	xfA WorldTransform, shapeB *shape, xfB WorldTransform, isFast bool, arena arena, roundedCull bool) bool {
+func computeMeshManifoldsWithOptimizations(world *world, workerIndex int, contact *contact, shapeA *shape, materialMap []uint16,
+	xfA WorldTransform, shapeB *shape, xfB WorldTransform, isFast bool, arena arena, optimized bool) bool {
 	assert(shapeA.typ == MeshShape || shapeA.typ == HeightShape, "shapeA->type == b3_meshShape || shapeA->type == b3_heightShape")
 
 	context := arrayGet(world.taskContexts, workerIndex)
@@ -523,8 +523,12 @@ func computeMeshManifoldsWithRoundedCull(world *world, workerIndex int, contact 
 	restOffset := MeshRestOffset()
 	enableSpeculative := contact.flags&enableSpeculativePoints != 0
 
-	// Make room for clip points
+	// Hull clipping still needs the original capacity. Rounded kernels emit
+	// at most one or two points per triangle; retain the loop's four-slot headroom.
 	pointBufferCapacity := maxPointsPerTriangle * triangleCount
+	if optimized {
+		pointBufferCapacity = meshContactPointCapacity(shapeB.typ, triangleCount)
+	}
 
 	pointBuffer := bump[LocalManifoldPoint](&arena, pointBufferCapacity)
 	totalPointCount := 0
@@ -549,11 +553,13 @@ func computeMeshManifoldsWithRoundedCull(world *world, workerIndex int, contact 
 	survivorCount := 0
 
 	var meshTriangles []MeshTriangle
+	var meshFlags []uint8
 	var meshVertices []Vec3
 	meshScale := Vec3One
 	meshFlipped := false
 	if shapeA.typ == MeshShape {
 		meshTriangles = GetMeshTriangles(shapeA.mesh.Data)
+		meshFlags = GetMeshFlags(shapeA.mesh.Data)
 		meshVertices = GetMeshVertices(shapeA.mesh.Data)
 		meshScale = shapeA.mesh.Scale
 		meshFlipped = float32(meshScale.X*meshScale.Y)*meshScale.Z < 0.0
@@ -576,7 +582,7 @@ func computeMeshManifoldsWithRoundedCull(world *world, workerIndex int, contact 
 	cullBounds := hullB != nil
 	if hullB != nil {
 		hullBounds = hullB.AABB
-	} else if roundedCull {
+	} else if optimized {
 		hullBounds, cullBounds = meshRoundedContactBounds(shapeB)
 		// Rounded kernels always use their existing speculative distance. It is
 		// already included in these outward-rounded local bounds.
@@ -691,12 +697,18 @@ func computeMeshManifoldsWithRoundedCull(world *world, workerIndex int, contact 
 		triangleIndex := int(triangleCaches[index].triangleIndex)
 		vertices := survivorVertices[3*survivorIndex : 3*survivorIndex+3]
 
-		var triangle triangle
+		var triangle meshTriangleInfo
 		if shapeA.typ == MeshShape {
-			triangle = getMeshTriangle(&shapeA.mesh, triangleIndex)
+			if optimized {
+				triangle = meshTriangleMetadata(meshTriangles[triangleIndex], meshFlags[triangleIndex], meshFlipped)
+			} else {
+				native := getMeshTriangle(&shapeA.mesh, triangleIndex)
+				triangle = meshTriangleInfo{native.i1, native.i2, native.i3, native.flags}
+			}
 		} else {
 			assert(shapeA.typ == HeightShape, "shapeA->type == b3_heightShape")
-			triangle = getHeightFieldTriangle(shapeA.heightField, triangleIndex)
+			native := getHeightFieldTriangle(shapeA.heightField, triangleIndex)
+			triangle = meshTriangleInfo{native.i1, native.i2, native.i3, native.flags}
 		}
 
 		cache := &triangleCaches[index].cache

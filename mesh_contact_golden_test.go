@@ -315,7 +315,7 @@ func (g *mcGoldenGen) runScenario(s *mcGoldenScenario, xfA WorldTransform) {
 		mcGoldenComputeShapeAABB(s.shapeB, xfB)
 
 		isFast := (frame % 3) == 2
-		touching := computeMeshManifoldsWithRoundedCull(&g.world, 0, c, s.shapeA, s.materialMap, xfA, s.shapeB, xfB, isFast, arena, false)
+		touching := computeMeshManifoldsWithOptimizations(&g.world, 0, c, s.shapeA, s.materialMap, xfA, s.shapeB, xfB, isFast, arena, false)
 		g.printContact(s.name, frame, touching, c, s.shapeB.typ)
 		mcGoldenStampImpulses(c, frame)
 	}

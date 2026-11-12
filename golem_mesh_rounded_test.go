@@ -46,7 +46,7 @@ func TestGolemRoundedMeshCullMatchesUnculledContacts(t *testing.T) {
 				xfB := WorldTransform{OffsetPos(xfA.P, RotateVector(xfA.Q, position)), MulQuat(xfA.Q, NormalizeQuat(Quat{V: Vec3{Y: float32(step) * .03}, S: 1}))}
 				mcGoldenComputeShapeAABB(&b, xfB)
 				for mode := range worlds {
-					touching := computeMeshManifoldsWithRoundedCull(&worlds[mode].world, 0, &contacts[mode], &a, nil, xfA, &b, xfB, false, arena, mode == 0)
+					touching := computeMeshManifoldsWithOptimizations(&worlds[mode].world, 0, &contacts[mode], &a, nil, xfA, &b, xfB, false, arena, mode == 0)
 					worlds[mode].sb.Reset()
 					worlds[mode].printContact("oracle", frame, touching, &contacts[mode], typ)
 				}
