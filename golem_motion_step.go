@@ -2,9 +2,10 @@
 package box3d
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 )
 
 // ErrMotionStepLimit means the entire requested duration was not simulated.
@@ -92,6 +93,14 @@ type motionSolverShape struct {
 	path   motionPath
 	bounds AABB
 }
+
+// Scratch belongs to one StepMotion call; samples never reference its storage.
+type motionStepScratch struct {
+	moving       []motionSolverShape
+	contacts     []int32
+	contactMarks []uint32
+	contactEpoch uint32
+}
 type motionPair struct {
 	a, b, childA, triangleA, childB, triangleB int32
 	leaf                                       bool
@@ -136,6 +145,7 @@ func (id WorldID) StepMotion(dt float32, options MotionStepOptions, observe func
 		forces = append(forces, motionForce{BodyID{body.id + 1, w.worldId, body.generation}, sim.force, sim.torque})
 	}
 	result := MotionStepResult{}
+	scratch := motionStepScratch{}
 	refinementBudget := options.MaxPathRefinements
 	initialDepths := map[motionPair]float32{}
 	remaining := dt
@@ -181,7 +191,7 @@ func (id WorldID) StepMotion(dt float32, options MotionStepOptions, observe func
 			if attempt == 64 {
 				return result, ErrMotionCastConvergence
 			}
-			fraction, pairs, err := motionStepFraction(w, forces, h, options.Tolerance, options.MaxPenetration, initialDepths, result.Microsteps == 0)
+			fraction, pairs, err := motionStepFraction(w, forces, h, options.Tolerance, options.MaxPenetration, initialDepths, result.Microsteps == 0, &scratch)
 			result.PairTests += pairs
 			if err != nil {
 				return result, fmt.Errorf("box3d: admission microstep %d dt=%g: %w", result.Microsteps, h, err)
@@ -200,9 +210,9 @@ func (id WorldID) StepMotion(dt float32, options MotionStepOptions, observe func
 		if h <= 0 || !IsValidFloat(h) || remaining-h == remaining {
 			return result, ErrMotionCastConvergence
 		}
-		sample := MotionStepSample{Index: result.Microsteps, Delta: h, StartFraction: result.Elapsed / dt}
-		for _, f := range forces {
-			sample.Bodies = append(sample.Bodies, MotionBodySample{Body: f.id, Start: f.id.GetTransform()})
+		sample := MotionStepSample{Index: result.Microsteps, Delta: h, StartFraction: result.Elapsed / dt, Bodies: make([]MotionBodySample, len(forces))}
+		for i, f := range forces {
+			sample.Bodies[i] = MotionBodySample{Body: f.id, Start: f.id.GetTransform()}
 		}
 		motionInvalidateMovingMeshCaches(w)
 		id.Step(h, 1)
@@ -222,8 +232,8 @@ func (id WorldID) StepMotion(dt float32, options MotionStepOptions, observe func
 			v.LinearVelocity = v.Body.GetLinearVelocity()
 			v.AngularVelocity = v.Body.GetAngularVelocity()
 		}
-		motionCopyEvents(id, &sample)
-		pairs, pathErr := motionValidatePaths(w, sample, options.Tolerance, options.MaxPenetration, initialDepths, &refinementBudget)
+		motionCopyEvents(id, &sample, &scratch)
+		pairs, pathErr := motionValidatePaths(w, sample, options.Tolerance, options.MaxPenetration, initialDepths, &refinementBudget, &scratch)
 		result.PairTests += pairs
 		result.PathRefinements = options.MaxPathRefinements - refinementBudget
 		if observe != nil {
@@ -316,8 +326,8 @@ func motionPredict(w *world, body *body, dt float32) motionPath {
 	return path
 }
 
-func motionStepFraction(w *world, bodies []motionForce, dt, tolerance, limit float32, initialDepths map[motionPair]float32, initial bool) (float32, int, error) {
-	var moving []motionSolverShape
+func motionStepFraction(w *world, bodies []motionForce, dt, tolerance, limit float32, initialDepths map[motionPair]float32, initial bool, scratch *motionStepScratch) (float32, int, error) {
+	moving := scratch.moving[:0]
 	for _, f := range bodies {
 		body := &w.bodies[f.id.Index1-1]
 		path := motionPredict(w, body, dt)
@@ -329,11 +339,12 @@ func motionStepFraction(w *world, bodies []motionForce, dt, tolerance, limit flo
 			moving = append(moving, motionSolverShape{s, path, motionBounds(path, motionShapeRadius(s, path.center), SpeculativeDistance())})
 		}
 	}
+	scratch.moving = moving
 	return motionEvaluatePairs(w, moving, dt, tolerance, initialDepths, initial, limit, false, nil)
 }
 
-func motionValidatePaths(w *world, sample MotionStepSample, tolerance, limit float32, initialDepths map[motionPair]float32, budget *int) (int, error) {
-	var moving []motionSolverShape
+func motionValidatePaths(w *world, sample MotionStepSample, tolerance, limit float32, initialDepths map[motionPair]float32, budget *int, scratch *motionStepScratch) (int, error) {
+	moving := scratch.moving[:0]
 	for _, v := range sample.Bodies {
 		body := &w.bodies[v.Body.Index1-1]
 		center := getBodySim(w, body).localCenter
@@ -349,16 +360,17 @@ func motionValidatePaths(w *world, sample MotionStepSample, tolerance, limit flo
 			}
 		}
 	}
+	scratch.moving = moving
 	_, pairs, err := motionEvaluatePairs(w, moving, sample.Delta, tolerance, initialDepths, false, limit, true, budget)
 	return pairs, err
 }
 
 func motionEvaluatePairs(w *world, moving []motionSolverShape, dt, tolerance float32, initialDepths map[motionPair]float32, initial bool, limit float32, validate bool, budget *int) (float32, int, error) {
-	sort.Slice(moving, func(i, j int) bool {
-		if moving[i].bounds.LowerBound.X != moving[j].bounds.LowerBound.X {
-			return moving[i].bounds.LowerBound.X < moving[j].bounds.LowerBound.X
+	slices.SortFunc(moving, func(a, b motionSolverShape) int {
+		if a.bounds.LowerBound.X != b.bounds.LowerBound.X {
+			return cmp.Compare(a.bounds.LowerBound.X, b.bounds.LowerBound.X)
 		}
-		return moving[i].shape.id < moving[j].shape.id
+		return cmp.Compare(a.shape.id, b.shape.id)
 	})
 	fraction := float32(1)
 	pairs := 0
@@ -471,7 +483,7 @@ func motionInvalidateMovingMeshCaches(w *world) {
 	}
 }
 
-func motionCopyEvents(id WorldID, sample *MotionStepSample) {
+func motionCopyEvents(id WorldID, sample *MotionStepSample, scratch *motionStepScratch) {
 	c := id.GetContactEvents()
 	c.BeginEvents = append([]ContactBeginTouchEvent(nil), c.BeginEvents...)
 	c.EndEvents = append([]ContactEndTouchEvent(nil), c.EndEvents...)
@@ -484,17 +496,47 @@ func motionCopyEvents(id WorldID, sample *MotionStepSample) {
 	j := id.GetJointEvents()
 	j.JointEvents = append([]JointEvent(nil), j.JointEvents...)
 	sample.JointEvents = j
-	seen := map[ContactID]bool{}
+	w := getUnlockedWorldFromId(id)
+	scratch.contacts = scratch.contacts[:0]
+	if len(scratch.contactMarks) < len(w.contacts) {
+		scratch.contactMarks = append(scratch.contactMarks, make([]uint32, len(w.contacts)-len(scratch.contactMarks))...)
+	}
+	scratch.contactEpoch++
+	if scratch.contactEpoch == 0 {
+		clear(scratch.contactMarks)
+		scratch.contactEpoch = 1
+	}
+	manifoldCount := 0
 	for _, body := range sample.Bodies {
-		contacts := make([]ContactData, body.Body.GetContactCapacity())
-		n := body.Body.GetContactData(contacts)
-		for _, contact := range contacts[:n] {
-			if seen[contact.ContactId] {
-				continue
+		for key := w.bodies[body.Body.Index1-1].headContactKey; key != NullIndex; {
+			index, edge := key>>1, key&1
+			contact := &w.contacts[index]
+			if contact.flags&contactTouchingFlag != 0 && scratch.contactMarks[index] != scratch.contactEpoch {
+				scratch.contactMarks[index] = scratch.contactEpoch
+				scratch.contacts = append(scratch.contacts, index)
+				manifoldCount += len(contact.manifolds)
 			}
-			seen[contact.ContactId] = true
-			contact.Manifolds = append([]Manifold(nil), contact.Manifolds...)
-			sample.Contacts = append(sample.Contacts, contact)
+			key = contact.edges[edge].nextKey
 		}
+	}
+	if len(scratch.contacts) == 0 {
+		return
+	}
+	sample.Contacts = make([]ContactData, len(scratch.contacts))
+	manifolds := make([]Manifold, manifoldCount)
+	offset := 0
+	for i, index := range scratch.contacts {
+		contact := &w.contacts[index]
+		a, b := &w.shapes[contact.shapeIdA], &w.shapes[contact.shapeIdB]
+		end := offset + len(contact.manifolds)
+		copy(manifolds[offset:end], contact.manifolds)
+		// Limiting capacity also keeps a caller's append from altering its next contact.
+		sample.Contacts[i] = ContactData{
+			ContactId: ContactID{contact.contactId + 1, w.worldId, 0, contact.generation},
+			ShapeIdA:  ShapeID{a.id + 1, w.worldId, a.generation},
+			ShapeIdB:  ShapeID{b.id + 1, w.worldId, b.generation},
+			Manifolds: manifolds[offset:end:end], ManifoldCount: contact.manifoldCount,
+		}
+		offset = end
 	}
 }

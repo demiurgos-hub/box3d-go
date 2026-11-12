@@ -58,8 +58,9 @@ func (id ShapeID) MotionIntervals(other ShapeID, aStart, aEnd, bStart, bEnd Worl
 	budget := 16384
 	_, err := motionVisitShapeMotion(a, z, ma, mb, base, tolerance, backFaces, true, func(_ MotionCastResult, la, lb queryLeaf) error {
 		stats.LeafPairs++
-		pa, _ := motionLeafProxy(la)
-		pb, _ := motionLeafProxy(lb)
+		var pointsA, pointsB [3]Vec3
+		pa, _ := motionLeafProxy(la, &pointsA)
+		pb, _ := motionLeafProxy(lb, &pointsB)
 		ca, cb := motionIntervalPath(ma, la, pa), motionIntervalPath(mb, lb, pb)
 		var leafIntervals []MotionInterval
 		if ca.angle != 0 || cb.angle != 0 {

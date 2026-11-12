@@ -14,11 +14,12 @@ func motionCertifyLeafPath(a, z queryLeaf, originalA, originalB motionPath, lo, 
 	}
 	*budget -= 1
 	ma, mb := motionSegment(originalA, lo, hi), motionSegment(originalB, lo, hi)
-	pa, ok := motionLeafProxy(a)
+	var pointsA, pointsB [3]Vec3
+	pa, ok := motionLeafProxy(a, &pointsA)
 	if !ok {
 		return ErrMotionCastUnsupported
 	}
-	pb, ok := motionLeafProxy(z)
+	pb, ok := motionLeafProxy(z, &pointsB)
 	if !ok {
 		return ErrMotionCastUnsupported
 	}

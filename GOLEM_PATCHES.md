@@ -8,6 +8,11 @@ or implement character pushing through manual impulses.
 
 ## Additive query extensions
 
+- Motion traversal uses caller-owned small proxy arrays and nonescaping compound
+  callbacks. Per-call admission/contact scratch is reused across microsteps;
+  observer samples retain independent body/contact/manifold storage. Allocation
+  regressions cover mesh/compound casts and retained contacts. These changes do
+  not reduce geometry traversal, alter solver cadence, or establish capacity.
 - `ShapeID.CastMotion` reads both body trajectories with linear origins and
   shortest-arc slerped rotations. Full rotational bounds and existing leaf BVHs
   retain child/triangle identity. Conservative advancement uses support-plane

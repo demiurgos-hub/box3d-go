@@ -133,7 +133,8 @@ func motionVisitShapeMotion(a, b *shape, ma, mb motionPath, base Pos, tolerance 
 		if failure != nil {
 			return
 		}
-		pa, ok := motionLeafProxy(la)
+		var pointsA [3]Vec3
+		pa, ok := motionLeafProxy(la, &pointsA)
 		if !ok {
 			failure = ErrMotionCastUnsupported
 			return
@@ -147,7 +148,8 @@ func motionVisitShapeMotion(a, b *shape, ma, mb motionPath, base Pos, tolerance 
 				failure = ErrMotionCastUnsupported
 				return
 			}
-			pb, ok := motionLeafProxy(lb)
+			var pointsB [3]Vec3
+			pb, ok := motionLeafProxy(lb, &pointsB)
 			if !ok {
 				failure = ErrMotionCastUnsupported
 				return
@@ -187,15 +189,18 @@ func motionVisitShapeMotion(a, b *shape, ma, mb motionPath, base Pos, tolerance 
 	return result, nil
 }
 
-func motionLeafProxy(leaf queryLeaf) (ShapeProxy, bool) {
+func motionLeafProxy(leaf queryLeaf, points *[3]Vec3) (ShapeProxy, bool) {
 	if leaf.triangleIndex >= 0 {
-		return ShapeProxy{Points: leaf.triangle[:], Count: 3}, true
+		*points = leaf.triangle
+		return ShapeProxy{Points: points[:], Count: 3}, true
 	}
 	switch leaf.kind {
 	case SphereShape:
-		return ShapeProxy{Points: []Vec3{leaf.sphere.Center}, Count: 1, Radius: leaf.sphere.Radius}, true
+		points[0] = leaf.sphere.Center
+		return ShapeProxy{Points: points[:1], Count: 1, Radius: leaf.sphere.Radius}, true
 	case CapsuleShape:
-		return ShapeProxy{Points: []Vec3{leaf.capsule.Center1, leaf.capsule.Center2}, Count: 2, Radius: leaf.capsule.Radius}, true
+		points[0], points[1] = leaf.capsule.Center1, leaf.capsule.Center2
+		return ShapeProxy{Points: points[:2], Count: 2, Radius: leaf.capsule.Radius}, true
 	case HullShape:
 		return ShapeProxy{Points: GetHullPoints(leaf.hull), Count: leaf.hull.VertexCount}, true
 	default:

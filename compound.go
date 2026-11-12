@@ -915,40 +915,15 @@ func ShapeCastCompound(shape *CompoundData, input *ShapeCastInput) CastOutput {
 	return result
 }
 
-// compoundQueryContext is struct b3CompoundQueryContext.
-type compoundQueryContext struct {
-	compound    *CompoundData
-	fcn         CompoundQueryFcn
-	userContext any
-}
-
-// treeQueryCallbackFcn is TreeQueryCallbackFcn.
-func treeQueryCallbackFcn(proxyId int, userData uint64, treeContext any) bool {
-	_ = proxyId
-	context := treeContext.(*compoundQueryContext)
-	return context.fcn(context.compound, int(userData), context.userContext)
-}
-
 // QueryCompound queries a compound shape for children that overlap an AABB.
 func QueryCompound(compound *CompoundData, aabb AABB, fcn CompoundQueryFcn, context any) {
-	// PORT: the tree receives the context as `any`, so a local would escape to the heap; it comes
-	// from a scratch pool instead (no allocation once warm).
-	compoundContext := compoundQueryScratch.get()
-	*compoundContext = compoundQueryContext{
-		compound:    compound,
-		fcn:         fcn,
-		userContext: context,
-	}
-
 	view := getCompoundTreeView(compound)
-	view.query(aabb, DefaultMaskBits, false, treeQueryCallbackFcn, compoundContext)
-
-	*compoundContext = compoundQueryContext{}
-	compoundQueryScratch.put(compoundContext)
+	// A direct callback keeps nested visitors on the stack. Storing fcn in a
+	// pooled context makes every caller's captured geometry escape to the heap.
+	view.query(aabb, DefaultMaskBits, false, func(_ int, userData uint64, _ any) bool {
+		return fcn(compound, int(userData), context)
+	}, nil)
 }
-
-// compoundQueryScratch holds the compoundQueryContext of QueryCompound.
-var compoundQueryScratch scratchPool[compoundQueryContext]
 
 // PORT: the #if 0 block (b3CompoundImpactContext, b3CompoundTimeOfImpactFcn,
 // b3CompoundTimeOfImpact) is not ported.
