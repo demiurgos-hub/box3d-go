@@ -236,6 +236,16 @@ func motionLocalCandidates(target, query motionPath, r, pad float32) AABB {
 }
 
 func motionCastLeaves(la, lb queryLeaf, pa, pb ShapeProxy, ma, mb motionPath, ra, rb, tolerance float32, backFaces, expandedBand bool) (MotionCastResult, error) {
+	result, err := motionAdvanceLeaves(la, lb, pa, pb, ma, mb, ra, rb, tolerance, backFaces, expandedBand)
+	if !errors.Is(err, ErrMotionCastConvergence) || !expandedBand || ma.angle == 0 && mb.angle == 0 || !backFaces && (la.triangleIndex >= 0 || lb.triangleIndex >= 0) {
+		return result, err
+	}
+	// A global angular speed bound can stall near a tangency. Certify the
+	// first distance-band boundary without changing solver admission semantics.
+	return motionRotatingBandCast(la, lb, pa, pb, ma, mb, ra, rb, tolerance, backFaces)
+}
+
+func motionAdvanceLeaves(la, lb queryLeaf, pa, pb ShapeProxy, ma, mb motionPath, ra, rb, tolerance float32, backFaces, expandedBand bool) (MotionCastResult, error) {
 	if !motionBounds(ma, ra, tolerance).Overlaps(motionBounds(mb, rb, tolerance)) {
 		return MotionCastResult{}, nil
 	}

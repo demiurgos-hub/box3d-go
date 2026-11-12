@@ -260,6 +260,18 @@ returned, before each retained endpoint, using only private pending contact
 history. Accepted shutdown history is unchanged by rejected frames. Normal
 sensor-free simulation retains its immediate observer path.
 
+Interval enumeration certifies all swept-bounds leaf candidates directly, rather
+than requiring an earlier conservative-advancement hit. That redundant cast could
+approach an exact rotational endpoint tangency asymptotically. Public additive
+motion casts now use a bounded distance-band search only after rotational
+advancement fails to converge. This search distinguishes the positive query band
+from geometric overlap and never reports clear on unresolved band evidence.
+Solver admission retains its original advancement policy. Adjacent numerical contact fragments
+merge only when the entire intervening span is certified within the original
+distance tolerance; no tolerance increase or time epsilon is used. Regression
+cases cover both tangent endpoints, separated near misses and float32 world
+offsets of 0 and ±2,304m. Translation and upstream default casts are unchanged.
+
 ## Analytic precise sphere/triangle sweeps
 
 The additive precise-cast path solves sphere/triangle face, finite edge-capsule

@@ -56,7 +56,7 @@ func (id ShapeID) MotionIntervals(other ShapeID, aStart, aEnd, bStart, bEnd Worl
 	var intervals []MotionInterval
 	stats := MotionIntervalResult{}
 	budget := 16384
-	_, err := motionVisitShapeMotion(a, z, ma, mb, base, tolerance, backFaces, true, func(_ MotionCastResult, la, lb queryLeaf) error {
+	err := motionVisitIntervalLeaves(a, z, ma, mb, tolerance, func(la, lb queryLeaf) error {
 		stats.LeafPairs++
 		var pointsA, pointsB [3]Vec3
 		pa, _ := motionLeafProxy(la, &pointsA)
@@ -128,6 +128,45 @@ func (id ShapeID) MotionIntervals(other ShapeID, aStart, aEnd, bStart, bEnd Worl
 	stats.Count = copy(dst, merged)
 	stats.Incomplete = stats.Count < stats.Total
 	return stats, nil
+}
+
+// Interval certification must inspect every swept-bounds candidate directly.
+// Earliest-hit conservative advancement is not a valid prerequisite: its global
+// angular speed bound can approach an endpoint tangency asymptotically even when
+// the interval certificates can enclose that contact within the same tolerance.
+func motionVisitIntervalLeaves(a, z *shape, ma, mz motionPath, tolerance float32, visit func(queryLeaf, queryLeaf) error) error {
+	ra, rz := motionShapeRadius(a, ma.center), motionShapeRadius(z, mz.center)
+	if !IsValidFloat(ra) || !IsValidFloat(rz) {
+		return ErrMotionCastInvalid
+	}
+	if !motionBounds(ma, ra, tolerance).Overlaps(motionBounds(mz, rz, tolerance)) {
+		return nil
+	}
+	var failure error
+	visitQueryGeometry(a, TransformIdentity, motionLocalCandidates(ma, mz, rz, tolerance), func(la queryLeaf) {
+		if failure != nil {
+			return
+		}
+		var points [3]Vec3
+		pa, valid := motionLeafProxy(la, &points)
+		if !valid {
+			failure = ErrMotionCastUnsupported
+			return
+		}
+		leafRadius := motionProxyRadius(pa, la.transform, ma.center)
+		visitQueryGeometry(z, TransformIdentity, motionLocalCandidates(mz, ma, leafRadius, tolerance), func(lz queryLeaf) {
+			if failure != nil {
+				return
+			}
+			var points [3]Vec3
+			if _, valid := motionLeafProxy(lz, &points); !valid || la.triangleIndex >= 0 && lz.triangleIndex >= 0 {
+				failure = ErrMotionCastUnsupported
+				return
+			}
+			failure = visit(la, lz)
+		})
+	})
+	return failure
 }
 
 func motionIntervalPath(path motionPath, leaf queryLeaf, proxy ShapeProxy) motionPath {

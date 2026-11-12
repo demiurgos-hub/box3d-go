@@ -9,9 +9,43 @@ func motionRotatingIntervals(la, lb queryLeaf, pa, pb ShapeProxy, ma, mb motionP
 	ra, rb := motionProxyRadius(pa, la.transform, ma.center), motionProxyRadius(pb, lb.transform, mb.center)
 	rate := Length(Sub(Sub(mb.end.P, mb.start.P), Sub(ma.end.P, ma.start.P))) + float32(ma.angle*(ra-pa.Radius)) + float32(mb.angle*(rb-pb.Radius))
 	rate *= 1 + 16*fltEpsilon
+	var nearBand func(float32, float32, int) bool
+	nearBand = func(lo, hi float32, depth int) bool {
+		if *budget == 0 {
+			return false
+		}
+		*budget--
+		mid := .5 * (lo + hi)
+		xa, xb := MulTransforms(ma.at(mid), la.transform), MulTransforms(mb.at(mid), lb.transform)
+		cache := SimplexCache{}
+		d := ShapeDistance(&DistanceInput{ProxyA: pa, ProxyB: pb, Transform: InvMulTransforms(xa, xb)}, &cache, nil)
+		if !IsValidFloat(d.Distance) || d.Iterations >= maxGJKIterations {
+			return false
+		}
+		gap := d.Distance - pa.Radius - pb.Radius
+		reach := float32(.5 * (hi - lo) * rate)
+		if gap+reach <= tolerance {
+			return true
+		}
+		if gap > tolerance || depth == 24 || mid <= lo || mid >= hi {
+			return false
+		}
+		return nearBand(lo, mid, depth+1) && nearBand(mid, hi, depth+1)
+	}
 	var spans [][2]float32
 	appendSpan := func(lo, hi float32) {
-		if len(spans) > 0 && spans[len(spans)-1][1] == lo {
+		join := false
+		if len(spans) > 0 {
+			previous := spans[len(spans)-1][1]
+			join = previous == lo
+			if !join {
+				// Near a tangent, float32 distance can alternate across zero.
+				// Join only when the entire intervening span is certified inside
+				// the requested boundary band, never by a larger time epsilon.
+				join = nearBand(previous, lo, 0)
+			}
+		}
+		if join {
 			spans[len(spans)-1][1] = hi
 		} else {
 			spans = append(spans, [2]float32{lo, hi})
@@ -54,6 +88,9 @@ func motionRotatingIntervals(la, lb queryLeaf, pa, pb ShapeProxy, ma, mb motionP
 	}
 	if err := visit(0, 1, 0); err != nil {
 		return nil, err
+	}
+	if *budget == 0 {
+		return nil, ErrMotionIntervalLimit
 	}
 	var out []MotionInterval
 	sample := func(f float32) (MotionCastResult, error) {
