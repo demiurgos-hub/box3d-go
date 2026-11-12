@@ -6,6 +6,10 @@
 // compares every manifold, the mixed material values, the query bounds and the triangle caches
 // against the pinned upstream C sources (efca0c184d40fd6a82016983f1601c4d23965867) compiled with
 // -ffp-contract=off. See testdata/mesh_contact_golden_gen.c; this file mirrors it line by line.
+// It explicitly retains the original unculled rounded-shape kernel because the C
+// fixture includes separated GJK cache bytes. golem_mesh_rounded_test.go compares
+// optimized contact outputs against this same original kernel without comparing
+// intentionally skipped separated-cache refreshes.
 //
 // SPDX-License-Identifier: MIT
 // Go port: github.com/gataengine/box3d-go authors.
@@ -311,7 +315,7 @@ func (g *mcGoldenGen) runScenario(s *mcGoldenScenario, xfA WorldTransform) {
 		mcGoldenComputeShapeAABB(s.shapeB, xfB)
 
 		isFast := (frame % 3) == 2
-		touching := computeMeshManifolds(&g.world, 0, c, s.shapeA, s.materialMap, xfA, s.shapeB, xfB, isFast, arena)
+		touching := computeMeshManifoldsWithRoundedCull(&g.world, 0, c, s.shapeA, s.materialMap, xfA, s.shapeB, xfB, isFast, arena, false)
 		g.printContact(s.name, frame, touching, c, s.shapeB.typ)
 		mcGoldenStampImpulses(c, frame)
 	}
@@ -513,7 +517,7 @@ func (g *mcGoldenGen) run() string {
 }
 
 var _ = Describe("MeshContactGoldenTest", func() {
-	It("MatchesC", func() {
+	It("OriginalUnculledKernelMatchesC", func() {
 		SetLogFcn(func(string) {})
 		defer SetLogFcn(defaultLogFcn)
 

@@ -208,7 +208,7 @@ workspace; no tolerance or global-step change masks that qualification gap.
   This fixes the approximately 5 mm rounded-shape sweep bias for Golem queries
   without changing upstream `ShapeCast`. Nonconvergence is an explicit failure.
   Focused regressions cover capsule/box distance and sphere casts at origin,
-  ±768, ±2304 and near the ±4096 metre coordinate envelope.
+  Â±768, Â±2304 and near the Â±4096 metre coordinate envelope.
 - `ShapeID.ClosestPointFeature`: bounded closest points on primitive solids,
   triangle meshes, heightfields (including holes), and baked compounds. Results
   include child/triangle/local feature identity and user material identity;
@@ -307,7 +307,7 @@ Dynamic concave geometry and arbitrary rotating-mesh equivalence remain
 unqualified. Default settings use a 1 mm solver admission contact distance,
 independent of caller-selected precise query tolerances and a separate 1 cm solver
 penetration limit, 0.01 rad maximum rotation and a 2,048 microstep cap per call.
-The admission distance exceeds a float32 position ULP at Golem's ±4,096 metre
+The admission distance exceeds a float32 position ULP at Golem's Â±4,096 metre
 envelope; that comparison alone is not a geometry-error qualification. It does
 not inflate placement or geometric query results.
 
@@ -464,7 +464,7 @@ Solver admission retains its original advancement policy. Adjacent numerical con
 merge only when the entire intervening span is certified within the original
 distance tolerance; no tolerance increase or time epsilon is used. Regression
 cases cover both tangent endpoints, separated near misses and float32 world
-offsets of 0 and ±2,304m. Translation and upstream default casts are unchanged.
+offsets of 0 and Â±2,304m. Translation and upstream default casts are unchanged.
 
 ## Analytic precise sphere/triangle sweeps
 
@@ -617,3 +617,38 @@ Those attribution values are diagnostic, not an allocation estimate or proof thi
 optimization alone meets capacity. Focused SIMD continuation/joint controls and
 an additional static-heavy participant/no-work-to-fast-impact regression pass.
 Full workload improvement remains to be measured on the subsequent frozen source.
+
+
+## Conservative rounded-shape mesh candidate culling
+
+The existing mesh survivor stage now also culls sphere/capsule triangle AABBs
+against the rounded shape's body-local bounds plus the native rounded kernel's
+existing `SpeculativeDistance`. Radius/margin arithmetic rounds outward with
+`Nextafter32` and retains the existing float32 broadphase roundoff allowance.
+This changes no contact, query or solver threshold. Hull culling arithmetic is
+unchanged. Scalar and SIMD stages preserve surviving triangle/feature order and
+the complete cached triangle index list. Only provably disjoint triangles avoid
+the rounded narrowphase call.
+
+Skipped capsule triangles retain their prior separated simplex cache rather than
+running GJK merely to refresh it. This is an intentional internal cache difference,
+not an omitted valid contact. The original pinned-C mesh-contact fixture includes
+these cache bytes, so `OriginalUnculledKernelMatchesC` explicitly exercises the
+retained unculled kernel and leaves the C artifact unchanged. The optimized path
+is separately compared against that same kernel: full manifold structs, contact
+features/order, material values, query bounds and retained impulse matching are
+identical over repeated forward/reverse sphere/capsule motion on a rotated,
+mirrored nonplanar mesh at +2304/+768 coordinates. Outward bounds, existing
+scalar/wide survivor tests and motor/static-wall/kinematic-mesh controls pass.
+
+Read-only reference dependency audit found no other mesh-cache digest comparator:
+leaf manifold goldens call unchanged leaf kernels; world/replay state hashes cover
+body poses/velocities; recording-C comparison skips the native seed snapshot.
+Native snapshot layout and triangle cache serialization are unchanged. This audit
+is not a claim that an unexecuted full reference suite passed.
+
+Profile support: `capacity-profile-20261112-01/cpu.pprof` attributes 1.04 s
+cumulative CPU to `CollideTriangleAndCapsule`, within 2.77 s of mesh contact work.
+The optimization's workload effect remains unmeasured until the next coordinated
+frozen-source run. Focused evidence is retained in `native-rounded-cull-20261112-01`;
+no broad matrix, timing workload or reference regeneration was performed here.

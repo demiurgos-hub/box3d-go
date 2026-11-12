@@ -483,6 +483,11 @@ type cluster struct {
 // PORT: const uint16_t* materialMap is a slice; NULL is nil.
 func computeMeshManifolds(world *world, workerIndex int, contact *contact, shapeA *shape, materialMap []uint16,
 	xfA WorldTransform, shapeB *shape, xfB WorldTransform, isFast bool, arena arena) bool {
+	return computeMeshManifoldsWithRoundedCull(world, workerIndex, contact, shapeA, materialMap, xfA, shapeB, xfB, isFast, arena, true)
+}
+
+func computeMeshManifoldsWithRoundedCull(world *world, workerIndex int, contact *contact, shapeA *shape, materialMap []uint16,
+	xfA WorldTransform, shapeB *shape, xfB WorldTransform, isFast bool, arena arena, roundedCull bool) bool {
 	assert(shapeA.typ == MeshShape || shapeA.typ == HeightShape, "shapeA->type == b3_meshShape || shapeA->type == b3_heightShape")
 
 	context := arrayGet(world.taskContexts, workerIndex)
@@ -567,11 +572,17 @@ func computeMeshManifolds(world *world, workerIndex int, contact *contact, shape
 	py := splatW(transformAtoB.P.Y)
 	pz := splatW(transformAtoB.P.Z)
 
-	marginW := splatW(hullMargin.X)
 	var hullBounds AABB
+	cullBounds := hullB != nil
 	if hullB != nil {
 		hullBounds = hullB.AABB
+	} else if roundedCull {
+		hullBounds, cullBounds = meshRoundedContactBounds(shapeB)
+		// Rounded kernels always use their existing speculative distance. It is
+		// already included in these outward-rounded local bounds.
+		hullMargin = Vec3Zero
 	}
+	marginW := splatW(hullMargin.X)
 	hullLowerX := splatW(hullBounds.LowerBound.X)
 	hullLowerY := splatW(hullBounds.LowerBound.Y)
 	hullLowerZ := splatW(hullBounds.LowerBound.Z)
@@ -611,7 +622,7 @@ func computeMeshManifolds(world *world, workerIndex int, contact *contact, shape
 		// through each multiply/add. Preserve the same rounding/order directly.
 		if simdNone {
 			survivorCount = meshScalarSurvivors(relativeMatrix, transformAtoB.P, &lanes, laneCount,
-				hullB != nil, hullBounds, hullMargin.X, triangleCaches, baseIndex,
+				cullBounds, hullBounds, hullMargin.X, triangleCaches, baseIndex,
 				survivorIndices, survivorVertices, survivorCount)
 			continue
 		}
@@ -629,7 +640,7 @@ func computeMeshManifolds(world *world, workerIndex int, contact *contact, shape
 		}
 
 		keepMask := (uint32(1) << laneCount) - 1
-		if hullB != nil {
+		if cullBounds {
 			lowerX := subW(minW(vx[0], minW(vx[1], vx[2])), marginW)
 			lowerY := subW(minW(vy[0], minW(vy[1], vy[2])), marginW)
 			lowerZ := subW(minW(vz[0], minW(vz[1], vz[2])), marginW)
