@@ -563,6 +563,7 @@ func CreateWorld(def *WorldDef) WorldID {
 	world.simdWidth = int32(GetSIMDWidth())
 
 	world.worldId = uint16(worldId)
+	consistentParallelWarmStart[worldId] = false
 	world.generation = revision
 	world.inUse = true
 

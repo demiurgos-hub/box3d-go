@@ -74,7 +74,11 @@ func (jointId JointID) ParallelJointGetMaxTorque() float32 {
 func getParallelJointTorque(world *world, base *jointSim) Vec3 {
 	joint := &base.parallelJoint
 
-	relQ := InvMulQuat(joint.quatA, joint.quatB)
+	quatB := joint.quatB
+	if consistentParallelWarmStart[world.worldId] && DotQuat(joint.quatA, quatB) < 0 {
+		quatB = NegateQuat(quatB)
+	}
+	relQ := InvMulQuat(joint.quatA, quatB)
 	joint.perpAxisX = MulSV(0.5, RotateVector(joint.quatA, Add(MulSV(relQ.S, Vec3AxisX), Cross(relQ.V, Vec3AxisX))))
 	joint.perpAxisY = MulSV(0.5, RotateVector(joint.quatA, Add(MulSV(relQ.S, Vec3AxisY), Cross(relQ.V, Vec3AxisY))))
 
@@ -124,6 +128,11 @@ func prepareParallelJoint(base *jointSim, context *stepContext) {
 	// Compute joint anchor frames with world space rotation, relative to center of mass
 	joint.quatA = MulQuat(bodySimA.transform.Q, base.localFrameA.Q)
 	joint.quatB = MulQuat(bodySimB.transform.Q, base.localFrameB.Q)
+	// Golem fix: use the solver's hemisphere for warm-start Jacobians as well.
+	// Otherwise free twist past pi reverses the retained impulse's direction.
+	if consistentParallelWarmStart[context.world.worldId] && DotQuat(joint.quatA, joint.quatB) < 0 {
+		joint.quatB = NegateQuat(joint.quatB)
+	}
 
 	relQ := InvMulQuat(joint.quatA, joint.quatB)
 

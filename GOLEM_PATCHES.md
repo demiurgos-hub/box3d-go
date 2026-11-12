@@ -160,3 +160,23 @@ dense-mesh contact lists, exact touch/gap/penetration, backfaces, invalid inputs
 reentrant clipping callbacks and concurrent readers. Qualification must still
 measure the complete current source; no timing or release pass follows from
 these allocation changes alone.
+
+## Parallel-joint warm-start hemisphere
+
+The parallel constraint permits free twist around its frame Z axis. The solve
+pass selects a consistent quaternion hemisphere, but the upstream prepare and
+torque-reporting paths previously used the unflipped orientation. After free
+twist passed pi, their Jacobians could reverse against the retained impulses and
+inject large tilt velocities. The opt-in world policy
+`SetConsistentParallelWarmStart(true)` makes `parallel_joint.go` use the solve
+hemisphere for preparation and force reporting too. Golem enables it for every
+world, including non-CCD worlds. Upstream defaults and C-reference recordings
+remain unchanged. The policy is reset on world creation and lies outside the
+upstream serialized layout; native recordings do not retain it. Golem portable
+checkpoints recreate the policy with the adapter. This changes solver Jacobians,
+without adding movement impulses or changing casts.
+
+`TestGolemParallelFreeTwistKeepsWarmStartHemisphere` continuously twists native-Z
+and rotated-Y constraints through several revolutions while applying a transverse
+load, checking alignment and finite torque. Engine fixtures also verify that an
+upright Y-axis constraint permits yaw while resisting tilt.
