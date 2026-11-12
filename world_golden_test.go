@@ -190,7 +190,7 @@ func worldGoldenRunScene(workerCount int) string {
 }
 
 func worldGoldenCompare(got string) {
-	data, err := os.ReadFile("testdata/golem_post_toi/world_golden.txt")
+	data, err := os.ReadFile("testdata/golem_native_sweep/world_golden.txt")
 	Expect(err).NotTo(HaveOccurred())
 	want := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 	lines := strings.Split(strings.TrimRight(got, "\n"), "\n")

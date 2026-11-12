@@ -17,19 +17,19 @@ import (
 // PORT: TracyCFrameMark is dropped. printf goes to GinkgoWriter. Double precision is not ported,
 // so only the float goldens are kept.
 const (
-	// Corrected pinned-C output: testdata/golem_post_toi/determinism.txt.
-	ragdollSleepStep          = 371
-	ragdollHash               = 0x3983DF54
+	// Corrected pinned-C output: testdata/golem_native_sweep/determinism.txt.
+	ragdollSleepStep          = 351
+	ragdollHash               = 0x37F9E470
 	upstreamRagdollSleepStep  = 291
 	upstreamRagdollHash       = 0xFF4C605B
-	wavePileSleepStep         = 272
-	wavePileHash              = 0x266F83B0
+	wavePileSleepStep         = 281
+	wavePileHash              = 0x1D432100
 	querySpawnSleepStep       = 242
 	querySpawnHash            = 0xF3AD9BA6
 	querySpawnHitCount        = 59
 	querySpawnQueryHash       = 0xE3271F3D
 	meshDropSleepStep         = 196
-	meshDropHash              = 0xBE70380B
+	meshDropHash              = 0xBD7A2FE1
 	upstreamMeshDropSleepStep = 226
 	upstreamMeshDropHash      = 0xD2FF069D
 	determinismGoldenEnabled  = MaxManifoldPoints == 4

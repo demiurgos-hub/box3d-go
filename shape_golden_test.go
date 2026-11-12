@@ -387,7 +387,7 @@ func (g *shapeGoldenGen) run() string {
 
 var _ = Describe("ShapeGoldenTest", func() {
 	It("MatchesC", func() {
-		want, err := os.ReadFile("testdata/shape_golden.txt")
+		want, err := os.ReadFile("testdata/golem_native_sweep/shape_golden.txt")
 		Expect(err).NotTo(HaveOccurred())
 
 		var g shapeGoldenGen

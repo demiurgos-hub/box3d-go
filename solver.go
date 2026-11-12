@@ -804,6 +804,9 @@ func solveContinuous(world *world, bodySimIndex int, taskContext *taskContext, d
 		}
 
 		sweptBox := box1.Union(box2)
+		if sweep.Q1 != sweep.Q2 {
+			sweptBox = sweptBox.Union(continuousOffsetBounds(continuousShapeBounds(fastShape, &sweep, context.fraction), base))
+		}
 		staticTree.Query(sweptBox, DefaultMaskBits, false, continuousQueryCallback, context)
 
 		if isBullet {

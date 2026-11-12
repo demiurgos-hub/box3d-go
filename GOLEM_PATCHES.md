@@ -116,6 +116,22 @@ triangle/triangle penetration, rounded generic convex penetration, snapshot quer
 views, solver qualification and cross-platform runtime execution remain separate
 work. No solver parity or workload qualification is inferred from unit tests.
 
+## Observed native stepping
+
+`WorldID.StepObserved` performs exactly one native `Step(dt, 1)` and copies body
+paths, contact manifolds and events for a locked, read-only observer. Constraint
+passes are explicit and default to the upstream 1/1 values. It does not perform
+global motion admission, geometric path certification, adaptive subdivision or
+an additional penetration check. Native world CCD remains independent of this
+observation seam. Observer failure returns after simulation; transactional hosts
+must reject the whole frame without rewinding an individual body. Existing
+moving-mesh cache invalidation remains necessary before collision detection.
+
+Focused tests compare the observed and ordinary native paths, force/torque and
+elapsed time, retain owned contact data, and verify invalid-input rejection and
+post-step observer failure. This observation seam is not a qualification claim
+for native CCD coverage or workload capacity.
+
 ## Opt-in motion admission
 
 `WorldID.StepMotion` subdivides a requested duration, predicts both moving bodies,
@@ -328,3 +344,37 @@ normal differs from the geometric face normal in two cases; one Unity distance
 is 0.129mm from the independent analytic result. Preserve both comparison records
 instead of changing geometric normals or relaxing query thresholds. These checks
 do not establish full scene, platform or workload qualification.
+
+## Native rotational and relative mesh CCD candidates
+
+Native `Step` now includes intermediate rotational geometry in its CCD candidate
+bounds. Endpoint AABBs can miss a long body passing an obstacle between its two
+endpoint orientations. Rotating geometry is conservatively enclosed by its
+centre-of-mass segment and geometry radius; this changes candidate traversal,
+not the native TOI algorithm, contact slop or physical geometry. Float32 bounds
+include an arithmetic allowance and world-coordinate conversion rounds outward.
+
+Mesh TOI traversal uses both bodies' relative translation and rotation. The mesh
+endpoint transform is used for its endpoint-side test, and an endpoint-only
+plane rejection is disabled when either orientation changes. Initial backface
+policy remains unchanged. Static mesh versus nonrotating shape retains the
+original candidate-bound arithmetic. Per-triangle native `TimeOfImpact` still
+decides whether a candidate is hit. These corrections can change native CCD
+outcomes for previously missed rotational or moving-mesh candidates; they do
+not add motion microsteps, post-solve guards or manual response impulses.
+
+Regressions cover a native rotating rod whose impact lies outside endpoint
+bounds at 0, +768 and -2304 metres, translating/rotating mesh TOI, common-motion
+and backface misses, and sampled intermediate bounds for sphere/capsule/hull
+sweeps with nonzero centres of mass. Frozen native-step diagnostics separately
+retain translating/rotating kinematic meshes passing passive bodies: those
+require CCD scheduling and solver-response coverage beyond this geometry patch.
+Dynamic concave simulation remains outside the supported contract. No workload,
+platform or complete moving-mesh qualification follows from these regressions.
+
+`testdata/golem_native_sweep` retains independently generated pinned-C reference
+outputs after the documented post-TOI contact correction and candidate-bounds
+patch. Only affected world/recording/replay/shape and deterministic expectations
+select this reference; original upstream and contact-only fixtures remain
+unchanged. The C text results agree at one/four workers. This is an explicit
+corrected-source comparison, not a claim that unmodified upstream matches.

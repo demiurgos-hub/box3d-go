@@ -1,0 +1,148 @@
+--- a/src/shape.c
++++ b/src/shape.c
+@@ -15,6 +15,7 @@
+ #include "compound.h"
+ 
+ #include "box3d/box3d.h"
++#include "golem_native_sweep.h"
+ 
+ static b3Shape* b3GetShape( b3World* world, b3ShapeId shapeId )
+ {
+@@ -2105,6 +2106,7 @@
+ 	b3Vec3 meshLocalCentroidB1, meshLocalCentroidB2;
+ 	float fallbackRadius;
+ 	bool isSensor;
++	bool rotating;
+ } b3MeshImpactContext;
+ 
+ static bool b3MeshTimeOfImpactFcn( b3Vec3 a, b3Vec3 b, b3Vec3 c, int triangleIndex, void* context )
+@@ -2127,7 +2129,7 @@
+ 		return true;
+ 	}
+ 
+-	if ( toiContext->isSensor == false && offset1 - offset2 < toiContext->fallbackRadius && offset2 > toiContext->fallbackRadius )
++	if ( toiContext->isSensor == false && !toiContext->rotating && offset1 - offset2 < toiContext->fallbackRadius && offset2 > toiContext->fallbackRadius )
+ 	{
+ 		// Finished in front
+ 		return true;
+@@ -2319,6 +2321,7 @@
+ 		context.toiInput.sweepB = *sweepB;
+ 		context.toiInput.maxFraction = maxFraction;
+ 		context.isSensor = isSensor;
++		context.rotating = !b3GolemSameQuat(sweepA->q1,sweepA->q2) || !b3GolemSameQuat(sweepB->q1,sweepB->q2);
+ 
+ 		b3Vec3 localCentroidB = b3GetShapeCentroid( shapeB );
+ 		context.localCentroidB = localCentroidB;
+@@ -2340,17 +2343,12 @@
+ 		};
+ 
+ 		context.meshLocalCentroidB1 = b3InvTransformPoint( xfA, b3TransformPoint( xfB1, localCentroidB ) );
+-		context.meshLocalCentroidB2 = b3InvTransformPoint( xfA, b3TransformPoint( xfB2, localCentroidB ) );
++		context.meshLocalCentroidB2 = b3InvTransformPoint( b3GolemFinalSweep(sweepA), b3TransformPoint( xfB2, localCentroidB ) );
+ 
+ 		float minExtent = b3ComputeShapeMinExtent( shapeB, context.localCentroidB );
+ 		context.fallbackRadius = b3MaxFloat( 0.5f * minExtent, B3_LINEAR_SLOP );
+ 
+-		// Swept bounds of shapeB
+-		// todo pass in xfA to get local bounds directly
+-		b3AABB bounds = b3ComputeSweptShapeAABB( shapeB, sweepB, maxFraction );
+-
+-		// Bounds local to mesh
+-		b3AABB localBounds = b3AABB_Transform( b3InvertTransform( xfA ), bounds );
++		b3AABB localBounds = b3GolemContinuousMeshLocalBounds(shapeB,sweepA,sweepB,maxFraction);
+ 
+ 		if ( typeA == b3_meshShape )
+ 		{
+--- a/src/shape.h
++++ b/src/shape.h
+@@ -204,3 +204,8 @@
+ {
+ 	return type == b3_sphereShape || type == b3_capsuleShape || type == b3_hullShape;
+ }
++
++// Golem native CCD candidate bounds.
++bool b3GolemSameQuat(b3Quat a,b3Quat b);
++b3AABB b3GolemContinuousShapeBounds(b3Shape*,const b3Sweep*,float);
++b3AABB b3GolemContinuousOffsetBounds(b3AABB,b3Pos);
+--- a/src/solver.c
++++ b/src/solver.c
+@@ -561,6 +561,7 @@
+ 		}
+ 
+ 		b3AABB sweptBox = b3AABB_Union( box1, box2 );
++		if(!b3GolemSameQuat(sweep.q1,sweep.q2)) sweptBox=b3AABB_Union(sweptBox,b3GolemContinuousOffsetBounds(b3GolemContinuousShapeBounds(fastShape,&sweep,context.fraction),base));
+ 		b3DynamicTree_Query( staticTree, sweptBox, B3_DEFAULT_MASK_BITS, false, b3ContinuousQueryCallback, &context );
+ 
+ 		if ( isBullet )
+--- a/src/golem_native_sweep.h
++++ b/src/golem_native_sweep.h
+@@ -0,0 +1,69 @@
++// Golem candidate-bounds corrections to pinned Box3D. SPDX-License-Identifier: MIT
++#include <float.h>
++#include <math.h>
++
++bool b3GolemSameQuat(b3Quat a, b3Quat b)
++{
++ return a.v.x==b.v.x && a.v.y==b.v.y && a.v.z==b.v.z && a.s==b.s;
++}
++static bool b3GolemSameVec(b3Vec3 a,b3Vec3 b)
++{
++ return a.x==b.x && a.y==b.y && a.z==b.z;
++}
++static b3Transform b3GolemFinalSweep(const b3Sweep* s)
++{
++ return (b3Transform){b3Sub(s->c2,b3RotateVector(s->q2,s->localCenter)),s->q2};
++}
++static float b3GolemShapeRadius(b3Shape* s,b3Vec3 center)
++{
++ if(s->type==b3_sphereShape) return b3Distance(s->sphere.center,center)+s->sphere.radius;
++ if(s->type==b3_capsuleShape) return b3MaxFloat(b3Distance(s->capsule.center1,center),b3Distance(s->capsule.center2,center))+s->capsule.radius;
++ b3AABB box=b3ComputeShapeAABB(s,b3Transform_identity);
++ return b3Distance(b3FarthestPointOnAABB(box,center),center);
++}
++static b3AABB b3GolemRadiusBounds(b3Vec3 a,b3Vec3 b,float radius)
++{
++ float scale=b3MaxFloat(b3Length(b3Abs(a)),b3Length(b3Abs(b)))+radius+1.0f;
++ radius+=32.0f*FLT_EPSILON*scale;
++ b3Vec3 pad={radius,radius,radius};
++ return (b3AABB){b3Sub(b3Min(a,b),pad),b3Add(b3Max(a,b),pad)};
++}
++static b3AABB b3GolemBoundsRoundoff(b3AABB b)
++{
++ float scale=b3MaxFloat(b3Length(b3Abs(b.lowerBound)),b3Length(b3Abs(b.upperBound)))+1.0f;
++ return b3AABB_Inflate(b,32.0f*FLT_EPSILON*scale);
++}
++b3AABB b3GolemContinuousShapeBounds(b3Shape* s,const b3Sweep* sweep,float fraction)
++{
++ if(b3GolemSameQuat(sweep->q1,sweep->q2)) {
++  if(s->type==b3_sphereShape || s->type==b3_capsuleShape || s->type==b3_hullShape)
++   return b3GolemBoundsRoundoff(b3ComputeSweptShapeAABB(s,sweep,fraction));
++  return b3GolemBoundsRoundoff(b3AABB_Union(b3ComputeShapeAABB(s,b3GetSweepTransform(sweep,0)),b3ComputeShapeAABB(s,b3GetSweepTransform(sweep,fraction))));
++ }
++ return b3GolemRadiusBounds(sweep->c1,b3Lerp(sweep->c1,sweep->c2,fraction),b3GolemShapeRadius(s,sweep->localCenter));
++}
++b3AABB b3GolemContinuousOffsetBounds(b3AABB bounds,b3Pos origin)
++{
++ b3AABB r=b3OffsetAABB(bounds,origin);
++ r.lowerBound.x=nextafterf(r.lowerBound.x,-FLT_MAX);
++ r.lowerBound.y=nextafterf(r.lowerBound.y,-FLT_MAX);
++ r.lowerBound.z=nextafterf(r.lowerBound.z,-FLT_MAX);
++ r.upperBound.x=nextafterf(r.upperBound.x,FLT_MAX);
++ r.upperBound.y=nextafterf(r.upperBound.y,FLT_MAX);
++ r.upperBound.z=nextafterf(r.upperBound.z,FLT_MAX);
++ return r;
++}
++static b3AABB b3GolemContinuousMeshLocalBounds(b3Shape* s,const b3Sweep* a,const b3Sweep* b,float fraction)
++{
++ if(b3GolemSameVec(a->c1,a->c2) && b3GolemSameQuat(a->q1,a->q2) && b3GolemSameQuat(b->q1,b->q2))
++  return b3AABB_Transform(b3InvertTransform(b3GolemFinalSweep(a)),b3ComputeSweptShapeAABB(s,b,fraction));
++ if(b3GolemSameQuat(a->q1,a->q2)) {
++  b3Sweep relative={.localCenter=b->localCenter,.q1=b3InvMulQuat(a->q1,b->q1),.q2=b3InvMulQuat(a->q1,b->q2),
++   .c1=b3Add(a->localCenter,b3InvRotateVector(a->q1,b3Sub(b->c1,a->c1))),
++   .c2=b3Add(a->localCenter,b3InvRotateVector(a->q1,b3Sub(b->c2,a->c2)))};
++  return b3GolemContinuousShapeBounds(s,&relative,fraction);
++ }
++ b3Vec3 d1=b3Sub(b->c1,a->c1),d2=b3Lerp(d1,b3Sub(b->c2,a->c2),fraction);
++ float radius=b3MaxFloat(b3Length(d1),b3Length(d2))+b3GolemShapeRadius(s,b->localCenter);
++ return b3GolemRadiusBounds(a->localCenter,a->localCenter,radius);
++}

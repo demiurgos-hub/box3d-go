@@ -2228,6 +2228,7 @@ type meshImpactContext struct {
 	meshLocalCentroidB1, meshLocalCentroidB2 Vec3
 	fallbackRadius                           float32
 	isSensor                                 bool
+	rotating                                 bool
 
 	// PORT: storage for the b3Vec3 triangle[3] local of b3MeshTimeOfImpactFcn, which proxyA
 	// points at during the TOI call. Kept here so the callback does not allocate.
@@ -2251,7 +2252,7 @@ func meshTimeOfImpactFcn(a, b, c Vec3, triangleIndex int, context any) bool {
 		return true
 	}
 
-	if toiContext.isSensor == false && offset1-offset2 < toiContext.fallbackRadius && offset2 > toiContext.fallbackRadius {
+	if toiContext.isSensor == false && !toiContext.rotating && offset1-offset2 < toiContext.fallbackRadius && offset2 > toiContext.fallbackRadius {
 		// Finished in front
 		return true
 	}
@@ -2433,8 +2434,7 @@ func shapeTimeOfImpact(shapeA, shapeB *shape, sweepA, sweepB *Sweep, maxFraction
 	}
 
 	if typeA == HeightShape || typeA == MeshShape {
-		// todo implement b3MeshTimeOfImpact and b3HeightFieldTimeOfImpact
-		// Note: assuming mesh is static
+		// Traverse candidate triangles in the mesh frame, retaining both body sweeps.
 
 		// PORT: scratch pool, see compoundImpactContext above.
 		context := meshImpactScratch.get()
@@ -2446,11 +2446,12 @@ func shapeTimeOfImpact(shapeA, shapeB *shape, sweepA, sweepB *Sweep, maxFraction
 		context.toiInput.SweepB = *sweepB
 		context.toiInput.MaxFraction = maxFraction
 		context.isSensor = isSensor
+		context.rotating = sweepA.Q1 != sweepA.Q2 || sweepB.Q1 != sweepB.Q2
 
 		localCentroidB := getShapeCentroid(shapeB)
 		context.localCentroidB = localCentroidB
 
-		// Assume mesh is static
+		// Initial frame for the existing one-sided starting-side policy.
 		xfA := Transform{
 			P: Sub(sweepA.C1, RotateVector(sweepA.Q1, sweepA.LocalCenter)),
 			Q: sweepA.Q1,
@@ -2467,17 +2468,12 @@ func shapeTimeOfImpact(shapeA, shapeB *shape, sweepA, sweepB *Sweep, maxFraction
 		}
 
 		context.meshLocalCentroidB1 = InvTransformPoint(xfA, TransformPoint(xfB1, localCentroidB))
-		context.meshLocalCentroidB2 = InvTransformPoint(xfA, TransformPoint(xfB2, localCentroidB))
+		context.meshLocalCentroidB2 = InvTransformPoint(getFinalSweepTransform(sweepA), TransformPoint(xfB2, localCentroidB))
 
 		minExtent := computeShapeMinExtent(shapeB, context.localCentroidB)
 		context.fallbackRadius = MaxFloat(0.5*minExtent, LinearSlop())
 
-		// Swept bounds of shapeB
-		// todo pass in xfA to get local bounds directly
-		bounds := computeSweptShapeAABB(shapeB, sweepB, maxFraction)
-
-		// Bounds local to mesh
-		localBounds := bounds.Transform(InvertTransform(xfA))
+		localBounds := continuousMeshLocalBounds(shapeB, sweepA, sweepB, maxFraction)
 
 		if typeA == MeshShape {
 			QueryMesh(&shapeA.mesh, localBounds, meshTimeOfImpactFcn, context)
