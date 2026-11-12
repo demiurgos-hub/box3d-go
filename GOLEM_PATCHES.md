@@ -206,3 +206,23 @@ Engine regressions cover a dense 5,000-triangle floor with rotating, falling,
 jointed boxes at one/eight workers, a sleeping six-body mass-ratio stack,
 restitution energy, 100:1 momentum transfer and complete manifold force. These
 checks preserve the original contact tuning and do not qualify workload capacity.
+
+## Complete motion contact intervals
+
+`ShapeID.MotionIntervals` retains connected convex-leaf contact intervals, then
+unions overlapping children/triangles without collapsing concave exit/re-entry.
+Translation uses forward/reverse convex casts. Rotation recursively bounds both
+separation and overlap: a support plane certifies separation, while an inscribed
+ball in an inner Minkowski support hull certifies overlap. Boundary brackets
+enclose geometric contact within the requested distance tolerance. The deepest
+manifold point is never treated as a union MTD or an interior certificate.
+
+The result reports caller-buffer truncation and bounded refinement work. More
+than 16,384 retained leaf intervals or refinements fails explicitly; unsupported
+triangle/triangle and one-sided rotating-triangle pairs do not become misses.
+Regressions cover a thin sphere crossing, compound unions and re-entry, rotating
+initial/final overlap with a separated middle, hull/hull and triangle/hull motion.
+Engine integration replays swept sensor boundaries after the locked solver has
+returned, before each retained endpoint, using only private pending contact
+history. Accepted shutdown history is unchanged by rejected frames. Normal
+sensor-free simulation retains its immediate observer path.
