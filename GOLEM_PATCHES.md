@@ -13,6 +13,11 @@ or implement character pushing through manual impulses.
   retain child/triangle identity. Conservative advancement uses support-plane
   lower bounds and reports nonconvergence instead of clearance. Exact initial
   touching/penetration remains distinct from its positive tolerance band.
+  Near face contact, existing manifold normals can resolve a GJK witness that
+  is no longer a separating plane. A stalled representable fraction gets a
+  geometry probe bounded by one quarter of the query tolerance; an unresolved
+  probe remains an explicit error. Fixed-substep resting hull/mesh regressions
+  cover these cases in addition to the large-displacement fixtures.
   Triangle/triangle and one-sided rotating triangle queries explicitly fail.
   `MotionBounds` exposes the complete swept bound for caller candidate indexing.
 - `WorldID.PreciseCastShape` uses geometric conservative advancement with a

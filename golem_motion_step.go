@@ -151,7 +151,7 @@ func (id WorldID) StepMotion(dt float32, options MotionStepOptions, observe func
 			fraction, pairs, err := motionStepFraction(w, forces, h, options.Tolerance, initialDepths, result.Microsteps == 0)
 			result.PairTests += pairs
 			if err != nil {
-				return result, err
+				return result, fmt.Errorf("box3d: admission microstep %d dt=%g: %w", result.Microsteps, h, err)
 			}
 			if fraction >= 1 {
 				break
@@ -195,7 +195,7 @@ func (id WorldID) StepMotion(dt float32, options MotionStepOptions, observe func
 			}
 		}
 		if pathErr != nil {
-			return result, pathErr
+			return result, fmt.Errorf("box3d: actual microstep %d dt=%g: %w", result.Microsteps-1, h, pathErr)
 		}
 		if err := motionCheckPenetration(w, options.MaxPenetration, initialDepths); err != nil {
 			return result, err

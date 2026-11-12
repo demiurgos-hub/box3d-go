@@ -3,6 +3,7 @@ package box3d
 
 import (
 	"errors"
+	"fmt"
 	"math"
 )
 
@@ -236,7 +237,7 @@ func motionCastLeaves(la, lb queryLeaf, pa, pb ShapeProxy, ma, mb motionPath, ra
 	velocity := Sub(Sub(mb.end.P, mb.start.P), Sub(ma.end.P, ma.start.P))
 	axisA, axisB := RotateVector(ma.start.Q, ma.axis), RotateVector(mb.start.Q, mb.axis)
 	fraction := float32(0)
-	finalProbe := false
+	finalProbes := 0
 	for iteration := 0; iteration < 256; iteration++ {
 		xa, xb := MulTransforms(ma.at(fraction), la.transform), MulTransforms(mb.at(fraction), lb.transform)
 		rel := InvMulTransforms(xa, xb)
@@ -281,20 +282,40 @@ func motionCastLeaves(la, lb queryLeaf, pa, pb ShapeProxy, ma, mb motionPath, ra
 			r.Initial = fraction == 0 && (r.Touching || r.Penetrating)
 			return r, nil
 		}
-		if finalProbe {
-			return MotionCastResult{}, ErrMotionCastConvergence
+		if finalProbes > 0 {
+			a, z := la, lb
+			a.transform, z.transform = xa, xb
+			contact, valid := motionManifoldResult(a, z, fraction, backFaces)
+			if !valid {
+				return MotionCastResult{}, ErrMotionCastUnsupported
+			}
+			if contact.Hit && contact.Separation <= tolerance {
+				return contact, nil
+			}
+			return MotionCastResult{}, fmt.Errorf("%w: fraction probe %g gap=%g tolerance=%g", ErrMotionCastConvergence, fraction, gap, tolerance)
 		}
 		// A separating support plane gives a lower bound even if GJK stopped early.
-		maxA, minB := -fltMax, fltMax
-		for _, v := range pa.Points[:pa.Count] {
-			maxA = MaxFloat(maxA, Dot(d.Normal, v))
-		}
-		for _, v := range pb.Points[:pb.Count] {
-			minB = MinFloat(minB, Dot(d.Normal, TransformPoint(rel, v)))
-		}
-		lower := minB - maxA - pa.Radius - pb.Radius
+		lower := motionSupportGap(pa, pb, rel, d.Normal)
 		if lower <= 0 {
-			return MotionCastResult{}, ErrMotionCastConvergence
+			// Near face contact, GJK's witness normal can lose enough precision
+			// that it is no longer a separating plane. The existing manifold's
+			// geometric normal supplies an independent candidate, never an AABB.
+			a, z := la, lb
+			a.transform, z.transform = xa, xb
+			contact, valid := motionManifoldResult(a, z, fraction, backFaces)
+			if !valid {
+				return MotionCastResult{}, ErrMotionCastUnsupported
+			}
+			if contact.Hit {
+				if contact.Separation <= tolerance {
+					return contact, nil
+				}
+				normal = contact.Normal
+				lower = motionSupportGap(pa, pb, rel, InvRotateVector(xa.Q, normal))
+			}
+			if lower <= 0 {
+				return MotionCastResult{}, fmt.Errorf("%w: separating gap=%g lower=%g fraction=%g", ErrMotionCastConvergence, gap, lower, fraction)
+			}
 		}
 		angular := (float32(ma.angle*(ra-pa.Radius)*Length(Cross(axisA, normal))) + float32(mb.angle*(rb-pb.Radius)*Length(Cross(axisB, normal)))) * (1 + 8*fltEpsilon)
 		if ma.start == mb.start && ma.end == mb.end {
@@ -312,14 +333,41 @@ func motionCastLeaves(la, lb queryLeaf, pa, pb ShapeProxy, ma, mb motionPath, ra
 		next := mulAdd(fraction, 0.95, step)
 		if next <= fraction {
 			// The boundary may fall between adjacent representable fractions.
-			// Probe the next one once; an unresolved probe must never clear.
-			next = math.Nextafter32(fraction, 1)
+			// A fraction ULP may not change the transformed geometry at all.
+			// Probe by at most a quarter of the distance tolerance; an
+			// unresolved probe must fail rather than clear the trajectory.
+			probe := MinFloat(.25*tolerance, 8*fltEpsilon*MaxFloat(1, ra+rb+Length(rel.P))) / rate
+			next = MinFloat(1, MaxFloat(math.Nextafter32(fraction, 1), fraction+probe))
 			if next <= fraction || next > 1 {
 				return MotionCastResult{}, ErrMotionCastConvergence
 			}
-			finalProbe = true
+			finalProbes = 1
 		}
 		fraction = next
 	}
 	return MotionCastResult{}, ErrMotionCastConvergence
+}
+
+func motionSupportGap(a, z ShapeProxy, transform Transform, normal Vec3) float32 {
+	maxA, minB := -fltMax, fltMax
+	for _, v := range a.Points[:a.Count] {
+		maxA = MaxFloat(maxA, Dot(normal, v))
+	}
+	for _, v := range z.Points[:z.Count] {
+		minB = MinFloat(minB, Dot(normal, TransformPoint(transform, v)))
+	}
+	return minB - maxA - a.Radius - z.Radius
+}
+
+func motionManifoldResult(a, z queryLeaf, fraction float32, backFaces bool) (MotionCastResult, bool) {
+	var result MotionCastResult
+	valid := collideQueryLeaves(a, z, backFaces, func(point, normal Vec3, separation float32, fa, fb uint32) {
+		if result.Hit && separation >= result.Separation {
+			return
+		}
+		result = MotionCastResult{Hit: true, Fraction: fraction, Separation: separation, Normal: normal, Depth: MaxFloat(0, -separation), Touching: separation == 0, Penetrating: separation < 0,
+			Initial: fraction == 0 && separation <= 0, PointA: ToPos(MulSub(point, .5*separation, normal)), PointB: ToPos(MulAdd(point, .5*separation, normal)),
+			FeatureA: QueryFeature{a.child, a.triangleIndex, fa}, FeatureB: QueryFeature{z.child, z.triangleIndex, fb}}
+	})
+	return result, valid
 }

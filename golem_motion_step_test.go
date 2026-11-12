@@ -293,3 +293,41 @@ func TestGolemMotionStepInitialCompoundLeafCannotHideLaterWall(t *testing.T) {
 		t.Fatalf("initial floor masked later wall: %+v %v body=%v", r, err, body.GetPosition())
 	}
 }
+
+func TestGolemMotionStepFourFixedPartitionsAndRestingFaces(t *testing.T) {
+	t.Run("mesh", func(t *testing.T) {
+		w := motionStepWorld(t)
+		floor := motionStepBody(w, KinematicBody, Pos{Y: -2}, Vec3{Y: 80})
+		sd := DefaultShapeDef()
+		floor.CreateMeshShape(&sd, golemFlatMesh(), Vec3One)
+		body := motionStepBody(w, DynamicBody, Pos{}, Vec3Zero)
+		motionStepSphere(body, .5)
+		for i := 0; i < 4; i++ {
+			if _, err := w.StepMotion(.0125, DefaultMotionStepOptions(), nil); err != nil {
+				t.Fatalf("partition %d: %v", i, err)
+			}
+		}
+		if body.GetPosition().Y < 2.45 {
+			t.Fatal(body.GetPosition())
+		}
+	})
+	t.Run("resting hull faces", func(t *testing.T) {
+		w := motionStepWorld(t)
+		w.SetGravity(Vec3{Y: -9.81})
+		floor := motionStepBody(w, StaticBody, Pos{Y: -.5}, Vec3Zero)
+		sd := DefaultShapeDef()
+		flat := MakeBoxHull(4, .5, 4)
+		floor.CreateHullShape(&sd, &flat.Base)
+		body := motionStepBody(w, DynamicBody, Pos{Y: .505}, Vec3Zero)
+		cube := MakeBoxHull(.5, .5, .5)
+		body.CreateHullShape(&sd, &cube.Base)
+		for i := 0; i < 120; i++ {
+			if _, err := w.StepMotion(.0125, DefaultMotionStepOptions(), nil); err != nil {
+				t.Fatalf("resting step %d: %v", i, err)
+			}
+		}
+		if body.GetPosition().Y < .49 {
+			t.Fatal(body.GetPosition())
+		}
+	})
+}
