@@ -6,6 +6,44 @@ Original MIT attribution and port notes remain intact. This fork uses Go 1.27.1
 and float32 positions, geometry and simulation. It does not change default cast semantics
 or implement character pushing through manual impulses.
 
+## Native post-TOI contact response
+
+The pinned upstream C `src/solver.c` clips a time-of-impact pose but retains its
+impact velocity for the next contact solve. The pinned `contact_solver.c` and
+`contact_solver_wide.inl` do not distinguish that handoff from an ordinary soft
+overlap constraint. A 10mm-radius sphere moving at 400m/s through a 20mm wall is
+detected and clipped to X=-0.015m, then the following soft solve integrates to
+X=+0.071274m before relaxation removes its velocity. This behavior is inherited
+from upstream, not a missing Go translation.
+
+Native continuous stepping now uses a hard normal-velocity constraint for
+closing contact points whose participating body had a TOI in the previous step.
+The existing bounded recovery bias, accumulated impulses, friction, restitution
+and equal/opposite dynamic-body response remain in the ordinary solver. The
+marker is sampled during preparation, before integration clears transient body
+flags. Separated speculative contacts retain their original bias. Scalar
+overflow, four-wide and generated eight-wide kernels implement the same rule.
+There are no extra steps, swept-pair scans, gameplay impulses or query tolerance
+changes. Non-TOI contacts retain their original arithmetic.
+
+Regressions cover the small fast sphere at 240/80Hz and one/eight workers,
+restitution/friction, dynamic-target momentum at 1:1/1:10/1:100 mass ratios,
+simultaneous floor support, overflow constraints, ordinary contact parity and
+worker-repeatable falling ragdolls. Old pinned-C golden trajectories change at
+TOI contacts. `testdata/golem_post_toi` contains independently generated corrected
+C references, the exact C patch, compiler/options/hashes and baseline comparison
+provenance; original upstream fixtures remain unchanged. Before applying the
+patch, the same compiler reproduces original text/operation/registry references
+and determinism hashes. Corrected C one/four-worker output agrees with Go;
+raw recording seed-snapshot padding is excluded under the original fixture's
+comparison contract. Production remains `CGO_ENABLED=0`; C is offline evidence.
+
+This fixes the demonstrated free-impact handoff, not arbitrary multi-contact
+crushing. A fast small bullet hitting a thin dynamic plate backed by a static
+wall still exposes insufficient native one-pass contact propagation. The failing
+fixture and iteration diagnostic are retained under the external validation
+workspace; no tolerance or global-step change masks that qualification gap.
+
 ## Additive query extensions
 
 - Motion traversal uses caller-owned small proxy arrays and nonescaping compound
