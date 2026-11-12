@@ -190,6 +190,10 @@ product, direct component division and local plane distance. Poses, geometry and
 the calculation remain float32. No overlap tolerance, upstream cast or solver
 manifold is changed. Pair queries also retain feature identity and witnesses for
 touching contacts, instead of returning a classification with empty identity.
+The same local triangle plane bounds approximate edge contacts, so a finite
+triangle cannot report deeper penetration than its containing infinite plane.
+This covers GJK edge witnesses on a coplanar mesh without treating small positive
+penetrations as zero.
 
 `TestGolemTriangleFaceDoesNotInventPlacementPenetration` reproduces the rejected
 workload spawn on its authored mesh grid, then tests exact touch, positive gaps,

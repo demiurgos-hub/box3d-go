@@ -33,11 +33,13 @@ func TestGolemTriangleFaceDoesNotInventPlacementPenetration(t *testing.T) {
 		t.Fatal("touching pair lost geometry identity", pair, valid)
 	}
 	for _, count := range []int32{1, 2} {
-		for _, height := range []float32{0, -.00001, -.0001, -.001, .00001, .0001} {
-			proxy := ShapeProxy{Points: []Vec3{{Y: .4}, {Y: 1.4}}, Count: count, Radius: .4}
-			got, found, valid := shape.ProxyPenetrationDeepest(Pos{X: -84.8, Y: height, Z: -14}, &proxy, true)
-			if !valid || found != (height <= 0) || found && math.Abs(float64(got.Depth+height)) > 2e-8 || height == 0 && got.Depth != 0 {
-				t.Fatalf("count=%d height=%g: got=%+v found=%v valid=%v", count, height, got, found, valid)
+		for _, z := range []float32{-14, -5.6} {
+			for _, height := range []float32{0, -.00001, -.0001, -.001, .00001, .0001} {
+				proxy := ShapeProxy{Points: []Vec3{{Y: .4}, {Y: 1.4}}, Count: count, Radius: .4}
+				got, found, valid := shape.ProxyPenetrationDeepest(Pos{X: -84.8, Y: height, Z: z}, &proxy, true)
+				if !valid || found != (height <= 0) || found && math.Abs(float64(got.Depth+height)) > 2e-8 || height == 0 && got.Depth != 0 {
+					t.Fatalf("count=%d height=%g: got=%+v found=%v valid=%v", count, height, got, found, valid)
+				}
 			}
 		}
 	}

@@ -6,7 +6,7 @@ package box3d
 // Recompute face distance from the authored float32 vertices in a local frame;
 // this does not apply an overlap epsilon or alter upstream solver manifolds.
 func queryRefineTriangleFace(m *LocalManifold, tri []Vec3, convex queryLeaf) {
-	if m.PointCount == 0 || m.Feature != FeatureTriangleFace || convex.kind != SphereShape && convex.kind != CapsuleShape {
+	if m.PointCount == 0 || convex.kind != SphereShape && convex.kind != CapsuleShape {
 		return
 	}
 	a := tri[0]
@@ -24,6 +24,19 @@ func queryRefineTriangleFace(m *LocalManifold, tri []Vec3, convex queryLeaf) {
 		return Dot(Sub(point, a), scaled) / length
 	}
 	radius := convex.sphere.Radius
+	bound := distance(convex.sphere.Center) - radius
+	if convex.kind == CapsuleShape {
+		radius = convex.capsule.Radius
+		bound = MinFloat(distance(convex.capsule.Center1), distance(convex.capsule.Center2)) - radius
+	}
+	// A finite triangle cannot require more separation than its infinite plane.
+	// This also prevents approximate edge witnesses crossing a clear plane.
+	for i := range int(m.PointCount) {
+		m.Points[i].Separation = MaxFloat(m.Points[i].Separation, bound)
+	}
+	if m.Feature != FeatureTriangleFace {
+		return
+	}
 	segment := [2]clipVertex{{position: convex.sphere.Center, pair: featurePairSingle}}
 	count := 1
 	if convex.kind == CapsuleShape {
