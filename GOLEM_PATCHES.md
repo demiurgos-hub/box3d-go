@@ -249,3 +249,22 @@ Engine integration replays swept sensor boundaries after the locked solver has
 returned, before each retained endpoint, using only private pending contact
 history. Accepted shutdown history is unchanged by rejected frames. Normal
 sensor-free simulation retains its immediate observer path.
+
+## Analytic precise sphere/triangle sweeps
+
+The additive precise-cast path solves sphere/triangle face, finite edge-capsule
+and vertex intersections directly. This avoids stalled GJK fractions on long
+casts against real terrain vertices. It prefers the actual geometric contact;
+the caller's distance band is only used when the exact cast misses. Tiny edges
+that the upstream capsule-ray helper approximates remain on the generic precise
+path, and upstream casts/solver semantics are unchanged.
+
+Frozen float32 triangles and queries from the two-tile Unity reference capture
+(source SHA-256 `1945a6b09cb71b9757ffe15f93aaf999489e9022f07c75ca4e835858cd575aae`)
+are checked against independently calculated analytic roots. At +2,304m, the
+remaining strict Unity-comparison discrepancies have Golem distance error below
+7 micrometres and world-point error below 0.116mm. Unity's rounded world-witness
+normal differs from the geometric face normal in two cases; one Unity distance
+is 0.129mm from the independent analytic result. Preserve both comparison records
+instead of changing geometric normals or relaxing query thresholds. These checks
+do not establish full scene, platform or workload qualification.

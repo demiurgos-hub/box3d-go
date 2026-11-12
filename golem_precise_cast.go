@@ -121,6 +121,11 @@ func preciseProxyBounds(proxy *ShapeProxy, translation Vec3, padding float32) AA
 	return AABB{Sub(lower, Vec3{r, r, r}), Add(upper, Vec3{r, r, r})}
 }
 func preciseLeafCast(leaf queryLeaf, proxy *ShapeProxy, translation Vec3, tolerance float32) (CastOutput, bool) {
+	if leaf.triangleIndex >= 0 && proxy.Count == 1 && proxy.Radius > 0 {
+		if result, supported := preciseSphereTriangle(leaf, proxy.Points[0], proxy.Radius, translation, tolerance); supported {
+			return result, true
+		}
+	}
 	var target ShapeProxy
 	var points [3]Vec3
 	if leaf.triangleIndex >= 0 {
