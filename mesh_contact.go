@@ -607,6 +607,15 @@ func computeMeshManifolds(world *world, workerIndex int, contact *contact, shape
 			}
 		}
 
+		// The scalar lane backend otherwise copies twelve four-lane values
+		// through each multiply/add. Preserve the same rounding/order directly.
+		if simdNone {
+			survivorCount = meshScalarSurvivors(relativeMatrix, transformAtoB.P, &lanes, laneCount,
+				hullB != nil, hullBounds, hullMargin.X, triangleCaches, baseIndex,
+				survivorIndices, survivorVertices, survivorCount)
+			continue
+		}
+
 		// Transform triangle into the shape frame
 		var vx, vy, vz [3]floatW
 		for k := 0; k < 3; k++ {

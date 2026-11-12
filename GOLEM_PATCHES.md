@@ -110,3 +110,21 @@ crossings hidden by initial contact with a different compound leaf. Full upstrea
 also check C golden compatibility and compile-time no-FMA behavior on amd64 and
 arm64. Test logs, caches and temporary files belong under
 `D:/Demiurgos/tests/physics-validation/box3d` (caches at its parent), outside Git.
+
+## Scalar mesh transform specialization
+
+The default scalar lane backend now transforms candidate mesh triangles directly
+instead of copying four-lane vectors through each multiplication and addition.
+The multiplication/addition parentheses, float32 rounding, inclusive culling
+boundaries, triangle order, SAT-cache clearing and all manifold policies are
+unchanged. This does not reuse stale manifolds, skip candidate geometry, change
+solver slop, or alter the existing SIMD backend. Moving-mesh cache invalidation
+remains the separate motion extension's responsibility.
+
+`TestGolemMeshScalarMatchesWideTransforms` checks bit equality against the original
+wide expression across 2,000 seeded input batches; the boundary/cache regression
+checks inclusive contact culling and survivor order. The full upstream scalar
+golden/determinism suite and no-FMA compile guard pass under Go 1.27.1. The existing
+`GOEXPERIMENT=simd -tags box3d_simd` backend also passed its upstream suite before
+this specialization; build experiments and target CPU requirements must remain
+explicit in qualification manifests. No workload performance pass is implied.
