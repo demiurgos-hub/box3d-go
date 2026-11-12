@@ -116,10 +116,10 @@ func (id ShapeID) CastMotion(other ShapeID, aStart, aEnd, bStart, bEnd WorldTran
 }
 
 func motionCastShapes(a, b *shape, ma, mb motionPath, base Pos, tolerance float32, backFaces bool) (MotionCastResult, error) {
-	return motionVisitShapeMotion(a, b, ma, mb, base, tolerance, backFaces, nil)
+	return motionVisitShapeMotion(a, b, ma, mb, base, tolerance, backFaces, true, nil)
 }
 
-func motionVisitShapeMotion(a, b *shape, ma, mb motionPath, base Pos, tolerance float32, backFaces bool, visit func(MotionCastResult) error) (MotionCastResult, error) {
+func motionVisitShapeMotion(a, b *shape, ma, mb motionPath, base Pos, tolerance float32, backFaces, expandedBand bool, visit func(MotionCastResult) error) (MotionCastResult, error) {
 	ra, rb := motionShapeRadius(a, ma.center), motionShapeRadius(b, mb.center)
 	if !IsValidFloat(ra) || !IsValidFloat(rb) {
 		return MotionCastResult{}, ErrMotionCastInvalid
@@ -156,7 +156,7 @@ func motionVisitShapeMotion(a, b *shape, ma, mb motionPath, base Pos, tolerance 
 				failure = ErrMotionCastUnsupported
 				return
 			}
-			r, err := motionCastLeaves(la, lb, pa, pb, ma, mb, laRadius, motionProxyRadius(pb, lb.transform, mb.center), tolerance, backFaces)
+			r, err := motionCastLeaves(la, lb, pa, pb, ma, mb, laRadius, motionProxyRadius(pb, lb.transform, mb.center), tolerance, backFaces, expandedBand)
 			if err != nil {
 				failure = err
 				return
@@ -230,7 +230,7 @@ func motionLocalCandidates(target, query motionPath, r, pad float32) AABB {
 	return AABB{Sub(target.center, d), Add(target.center, d)}
 }
 
-func motionCastLeaves(la, lb queryLeaf, pa, pb ShapeProxy, ma, mb motionPath, ra, rb, tolerance float32, backFaces bool) (MotionCastResult, error) {
+func motionCastLeaves(la, lb queryLeaf, pa, pb ShapeProxy, ma, mb motionPath, ra, rb, tolerance float32, backFaces, expandedBand bool) (MotionCastResult, error) {
 	if !motionBounds(ma, ra, tolerance).Overlaps(motionBounds(mb, rb, tolerance)) {
 		return MotionCastResult{}, nil
 	}
@@ -296,7 +296,7 @@ func motionCastLeaves(la, lb queryLeaf, pa, pb ShapeProxy, ma, mb motionPath, ra
 		}
 		// A separating support plane gives a lower bound even if GJK stopped early.
 		lower := motionSupportGap(pa, pb, rel, d.Normal)
-		if lower <= 0 {
+		if lower <= tolerance {
 			// Near face contact, GJK's witness normal can lose enough precision
 			// that it is no longer a separating plane. The existing manifold's
 			// geometric normal supplies an independent candidate, never an AABB.
@@ -325,7 +325,11 @@ func motionCastLeaves(la, lb queryLeaf, pa, pb ShapeProxy, ma, mb motionPath, ra
 		if rate == 0 {
 			return MotionCastResult{}, nil
 		}
-		step := (lower - tolerance) / rate
+		advanceGap := lower
+		if expandedBand {
+			advanceGap -= tolerance
+		}
+		step := advanceGap / rate
 		if fraction+step > 1 {
 			return MotionCastResult{}, nil
 		}
@@ -337,7 +341,10 @@ func motionCastLeaves(la, lb queryLeaf, pa, pb ShapeProxy, ma, mb motionPath, ra
 			// Probe by at most a quarter of the distance tolerance; an
 			// unresolved probe must fail rather than clear the trajectory.
 			probe := MinFloat(.25*tolerance, 8*fltEpsilon*MaxFloat(1, ra+rb+Length(rel.P))) / rate
-			next = MinFloat(1, MaxFloat(math.Nextafter32(fraction, 1), fraction+probe))
+			next = MinFloat(1, fraction+probe)
+			if next-fraction > probe {
+				next = math.Nextafter32(next, fraction)
+			}
 			if next <= fraction || next > 1 {
 				return MotionCastResult{}, ErrMotionCastConvergence
 			}

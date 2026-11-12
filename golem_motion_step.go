@@ -23,15 +23,16 @@ var ErrMotionStepUnsafePath = errors.New("box3d: solver motion exceeded admitted
 // Mesh contact response still follows the solver's authored triangle winding;
 // motion admission uses two-sided surfaces conservatively.
 type MotionStepOptions struct {
-	MaxMicrosteps  int
-	MaxRotation    float32
+	MaxMicrosteps int
+	MaxRotation   float32
+	// Tolerance is solver admission contact distance, independent of query APIs.
 	Tolerance      float32
 	MaxPenetration float32
 }
 
 // DefaultMotionStepOptions returns bounded motion admission settings.
 func DefaultMotionStepOptions() MotionStepOptions {
-	return MotionStepOptions{MaxMicrosteps: 2048, MaxRotation: .01, Tolerance: 1e-5, MaxPenetration: .01}
+	return MotionStepOptions{MaxMicrosteps: 2048, MaxRotation: .01, Tolerance: .001, MaxPenetration: .01}
 }
 
 // MotionBodySample is an independently owned body-origin pose/velocity sample.
@@ -148,7 +149,7 @@ func (id WorldID) StepMotion(dt float32, options MotionStepOptions, observe func
 			if attempt == 64 {
 				return result, ErrMotionCastConvergence
 			}
-			fraction, pairs, err := motionStepFraction(w, forces, h, options.Tolerance, initialDepths, result.Microsteps == 0)
+			fraction, pairs, err := motionStepFraction(w, forces, h, options.Tolerance, options.MaxPenetration, initialDepths, result.Microsteps == 0)
 			result.PairTests += pairs
 			if err != nil {
 				return result, fmt.Errorf("box3d: admission microstep %d dt=%g: %w", result.Microsteps, h, err)
@@ -279,7 +280,7 @@ func motionPredict(w *world, body *body, dt float32) motionPath {
 	return path
 }
 
-func motionStepFraction(w *world, bodies []motionForce, dt, tolerance float32, initialDepths map[motionPair]float32, initial bool) (float32, int, error) {
+func motionStepFraction(w *world, bodies []motionForce, dt, tolerance, limit float32, initialDepths map[motionPair]float32, initial bool) (float32, int, error) {
 	var moving []motionSolverShape
 	for _, f := range bodies {
 		body := &w.bodies[f.id.Index1-1]
@@ -292,7 +293,7 @@ func motionStepFraction(w *world, bodies []motionForce, dt, tolerance float32, i
 			moving = append(moving, motionSolverShape{s, path, motionBounds(path, motionShapeRadius(s, path.center), SpeculativeDistance())})
 		}
 	}
-	return motionEvaluatePairs(w, moving, dt, tolerance, initialDepths, initial, 0)
+	return motionEvaluatePairs(w, moving, dt, tolerance, initialDepths, initial, limit, false)
 }
 
 func motionValidatePaths(w *world, sample MotionStepSample, tolerance, limit float32, initialDepths map[motionPair]float32) (int, error) {
@@ -312,11 +313,11 @@ func motionValidatePaths(w *world, sample MotionStepSample, tolerance, limit flo
 			}
 		}
 	}
-	_, pairs, err := motionEvaluatePairs(w, moving, sample.Delta, tolerance, initialDepths, false, limit)
+	_, pairs, err := motionEvaluatePairs(w, moving, sample.Delta, tolerance, initialDepths, false, limit, true)
 	return pairs, err
 }
 
-func motionEvaluatePairs(w *world, moving []motionSolverShape, dt, tolerance float32, initialDepths map[motionPair]float32, initial bool, validateLimit float32) (float32, int, error) {
+func motionEvaluatePairs(w *world, moving []motionSolverShape, dt, tolerance float32, initialDepths map[motionPair]float32, initial bool, limit float32, validate bool) (float32, int, error) {
 	sort.Slice(moving, func(i, j int) bool {
 		if moving[i].bounds.LowerBound.X != moving[j].bounds.LowerBound.X {
 			return moving[i].bounds.LowerBound.X < moving[j].bounds.LowerBound.X
@@ -359,7 +360,9 @@ func motionEvaluatePairs(w *world, moving []motionSolverShape, dt, tolerance flo
 		mb.end.P = Sub(mb.end.P, base)
 		velocity := Sub(Sub(mb.end.P, mb.start.P), Sub(ma.end.P, ma.start.P))
 		ra, rb := motionShapeRadius(a.shape, ma.center), motionShapeRadius(z.shape, mb.center)
-		_, failure = motionVisitShapeMotion(a.shape, z.shape, ma, mb, ToPos(base), tolerance, true, func(r MotionCastResult) error {
+		// Admission targets actual contact, using tolerance only to stop early.
+		// Public queries instead sweep the entire expanded tolerance band.
+		_, failure = motionVisitShapeMotion(a.shape, z.shape, ma, mb, ToPos(base), tolerance, true, false, func(r MotionCastResult) error {
 			key := motionLeafKey(a.shape.id, z.shape.id, r.FeatureA, r.FeatureB)
 			if initial && r.Initial {
 				initialDepths[key] = r.Depth
@@ -368,11 +371,11 @@ func motionEvaluatePairs(w *world, moving []motionSolverShape, dt, tolerance flo
 			}
 			angular := float32(ma.angle*ra*Length(Cross(RotateVector(ma.start.Q, ma.axis), r.Normal))) + float32(mb.angle*rb*Length(Cross(RotateVector(mb.start.Q, mb.axis), r.Normal)))
 			closing := MaxFloat(0, -Dot(velocity, r.Normal)) + angular
-			if validateLimit > 0 {
-				bound := MaxFloat(validateLimit, initialDepths[key])
+			bound := MaxFloat(limit, initialDepths[key])
+			if validate {
 				depthBound := mulAdd(r.Depth, 1-r.Fraction, closing)
 				if depthBound > bound {
-					return fmt.Errorf("%w: shapes %d/%d projected depth=%g bound=%g", ErrMotionStepUnsafePath, a.shape.id, z.shape.id, depthBound, bound)
+					return fmt.Errorf("%w: shapes %d/%d projected depth=%g bound=%g initial=%g closure=%g", ErrMotionStepUnsafePath, a.shape.id, z.shape.id, depthBound, bound, r.Depth, closing)
 				}
 				return nil
 			}
@@ -380,7 +383,8 @@ func motionEvaluatePairs(w *world, moving []motionSolverShape, dt, tolerance flo
 			if r.Fraction*travel > 0.25*SpeculativeDistance() {
 				fraction = MinFloat(fraction, r.Fraction)
 			} else if closing > 0 {
-				fraction = MinFloat(fraction, 0.25*SpeculativeDistance()/closing)
+				budget := MinFloat(0.25*SpeculativeDistance(), MaxFloat(.01*limit, .5*(bound-r.Depth)))
+				fraction = MinFloat(fraction, budget/closing)
 			}
 			return nil
 		})

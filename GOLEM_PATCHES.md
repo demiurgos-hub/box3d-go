@@ -77,7 +77,11 @@ work. No solver parity or workload qualification is inferred from unit tests.
 
 `WorldID.StepMotion` subdivides a requested duration, predicts both moving bodies,
 and uses the ordinary solver for every contact impulse. Admission recomputes
-semi-implicit acceleration after reducing time. Actual solver trajectories are
+semi-implicit acceleration after reducing time and budgets further closure against
+the pair's remaining penetration allowance. Its casts target geometric contact,
+using contact distance only as an early stopping accuracy; unlike public motion
+queries, they do not require intersection with an inflated tolerance band.
+Actual solver trajectories are
 checked afterward, including every convex/triangle leaf, so unpredicted joint or
 gyroscopic motion cannot silently pass a new obstacle. Conservative unresolved
 paths, excessive overlap and work caps fault the enclosing frame; this is not a
@@ -98,8 +102,12 @@ cache before each solver step. Otherwise a stationary passenger can retain an
 empty triangle cache while the mesh rotates into it. Motion admission is
 two-sided, but the ordinary mesh solver still obeys authored triangle winding.
 Dynamic concave geometry and arbitrary rotating-mesh equivalence remain
-unqualified. Default settings use a 1e-5 m query tolerance, a separate 1 cm solver
+unqualified. Default settings use a 1 mm solver admission contact distance,
+independent of caller-selected precise query tolerances and a separate 1 cm solver
 penetration limit, 0.01 rad maximum rotation and a 2,048 microstep cap per call.
+The admission distance exceeds a float32 position ULP at Golem's ±4,096 metre
+envelope; that comparison alone is not a geometry-error qualification. It does
+not inflate placement or geometric query results.
 
 ## Validation
 
