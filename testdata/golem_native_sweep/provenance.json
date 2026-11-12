@@ -754,9 +754,9 @@
   },
   "artifactHashes": {
     "determinism.txt": "78ec7b132433b16d01f062ad70d48c376d4dd01995058bf318e9f6e1d1c13ddc",
-    "determinism_reference.c": "44ded25871854f7b2ba21366ba1a31fc92f41951da505710b9cf62fbf6181f4f",
-    "geometry.patch": "2f53f4ce9cf05bd388a1559d7d3aec196340cb63d60d862e6d6cbcd40376ad9f",
-    "README.md": "6ebde8f553022468d6a7d9cbbdcf090a602ae9b4e9b9df7b7b87072ea5abeff0",
+    "determinism_reference.c": "4573f0abf5bc81f30547f7949444d52d344e4c987c43947e2750f80628a423a4",
+    "geometry.patch": "d81a57fda9518f09492bf0083e76422284c9e864f6e8413b590147e7f035a762",
+    "README.md": "42a5ec1309525232011028f534c002f85e24a577eb0c852128501fe951ddd134",
     "recording_golden.b3rec": "90776165a60151b717cb2c520d74ec951aa147b38550be0845812d20c864565b",
     "replay_golden.b3rec": "733e4c67d25040b2de6649d1862872f5e5094f297078abc5e628d77a90b1463e",
     "replay_golden.txt": "59411b68c6e91b592894fe033ac77b4505325889d4ffccda63301b3a8b99ebfd",
@@ -764,5 +764,5 @@
     "world_golden.txt": "70883302b47a0aa5ac14a2b3fec9e339e584c3143bbf9074f575a3841dfd698a"
   },
   "qualification": false,
-  "textNormalization": "CRLF output line endings normalized to LF for existing Go line comparison; all numeric text unchanged; raw C files preserved in recorded build directories."
+  "textNormalization": "All committed textual reference artifacts use LF. Raw C outputs retain their original line endings in the recorded build directories; numeric text is unchanged."
 }

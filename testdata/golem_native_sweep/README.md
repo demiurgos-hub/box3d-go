@@ -16,3 +16,5 @@ matched between one and four C workers; recording headers retain worker setup.
 These files validate the native geometry/contact changes only. They do not
 establish full moving-body CCD scheduling, workload capacity, platform release
 qualification or a native runtime dependency.
+
+The geometry patch uses zero context; apply it with `git apply --unidiff-zero`.

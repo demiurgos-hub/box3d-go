@@ -1,48 +1,18 @@
 --- a/src/shape.c
 +++ b/src/shape.c
-@@ -15,6 +15,7 @@
- #include "compound.h"
- 
- #include "box3d/box3d.h"
+@@ -17,0 +18 @@
 +#include "golem_native_sweep.h"
- 
- static b3Shape* b3GetShape( b3World* world, b3ShapeId shapeId )
- {
-@@ -2105,6 +2106,7 @@
- 	b3Vec3 meshLocalCentroidB1, meshLocalCentroidB2;
- 	float fallbackRadius;
- 	bool isSensor;
+@@ -2107,0 +2109 @@
 +	bool rotating;
- } b3MeshImpactContext;
- 
- static bool b3MeshTimeOfImpactFcn( b3Vec3 a, b3Vec3 b, b3Vec3 c, int triangleIndex, void* context )
-@@ -2127,7 +2129,7 @@
- 		return true;
- 	}
- 
+@@ -2130 +2132 @@
 -	if ( toiContext->isSensor == false && offset1 - offset2 < toiContext->fallbackRadius && offset2 > toiContext->fallbackRadius )
 +	if ( toiContext->isSensor == false && !toiContext->rotating && offset1 - offset2 < toiContext->fallbackRadius && offset2 > toiContext->fallbackRadius )
- 	{
- 		// Finished in front
- 		return true;
-@@ -2319,6 +2321,7 @@
- 		context.toiInput.sweepB = *sweepB;
- 		context.toiInput.maxFraction = maxFraction;
- 		context.isSensor = isSensor;
+@@ -2321,0 +2324 @@
 +		context.rotating = !b3GolemSameQuat(sweepA->q1,sweepA->q2) || !b3GolemSameQuat(sweepB->q1,sweepB->q2);
- 
- 		b3Vec3 localCentroidB = b3GetShapeCentroid( shapeB );
- 		context.localCentroidB = localCentroidB;
-@@ -2340,17 +2343,12 @@
- 		};
- 
- 		context.meshLocalCentroidB1 = b3InvTransformPoint( xfA, b3TransformPoint( xfB1, localCentroidB ) );
+@@ -2343 +2346 @@
 -		context.meshLocalCentroidB2 = b3InvTransformPoint( xfA, b3TransformPoint( xfB2, localCentroidB ) );
 +		context.meshLocalCentroidB2 = b3InvTransformPoint( b3GolemFinalSweep(sweepA), b3TransformPoint( xfB2, localCentroidB ) );
- 
- 		float minExtent = b3ComputeShapeMinExtent( shapeB, context.localCentroidB );
- 		context.fallbackRadius = b3MaxFloat( 0.5f * minExtent, B3_LINEAR_SLOP );
- 
+@@ -2348,6 +2351 @@
 -		// Swept bounds of shapeB
 -		// todo pass in xfA to get local bounds directly
 -		b3AABB bounds = b3ComputeSweptShapeAABB( shapeB, sweepB, maxFraction );
@@ -50,15 +20,9 @@
 -		// Bounds local to mesh
 -		b3AABB localBounds = b3AABB_Transform( b3InvertTransform( xfA ), bounds );
 +		b3AABB localBounds = b3GolemContinuousMeshLocalBounds(shapeB,sweepA,sweepB,maxFraction);
- 
- 		if ( typeA == b3_meshShape )
- 		{
 --- a/src/shape.h
 +++ b/src/shape.h
-@@ -204,3 +204,8 @@
- {
- 	return type == b3_sphereShape || type == b3_capsuleShape || type == b3_hullShape;
- }
+@@ -206,0 +207,5 @@
 +
 +// Golem native CCD candidate bounds.
 +bool b3GolemSameQuat(b3Quat a,b3Quat b);
@@ -66,14 +30,8 @@
 +b3AABB b3GolemContinuousOffsetBounds(b3AABB,b3Pos);
 --- a/src/solver.c
 +++ b/src/solver.c
-@@ -561,6 +561,7 @@
- 		}
- 
- 		b3AABB sweptBox = b3AABB_Union( box1, box2 );
+@@ -563,0 +564 @@
 +		if(!b3GolemSameQuat(sweep.q1,sweep.q2)) sweptBox=b3AABB_Union(sweptBox,b3GolemContinuousOffsetBounds(b3GolemContinuousShapeBounds(fastShape,&sweep,context.fraction),base));
- 		b3DynamicTree_Query( staticTree, sweptBox, B3_DEFAULT_MASK_BITS, false, b3ContinuousQueryCallback, &context );
- 
- 		if ( isBullet )
 --- a/src/golem_native_sweep.h
 +++ b/src/golem_native_sweep.h
 @@ -0,0 +1,69 @@
