@@ -1,3 +1,5 @@
+// Fork reference: testdata/golem_post_toi applies only the documented native
+// post-TOI contact correction to pinned C. Original upstream fixtures remain intact.
 // Go-only test: no upstream counterpart. Steps a world with distance, motor, prismatic and revolute
 // joints (motors, limits and springs enabled, parameters changed through the <Kind>Joint* setters
 // at steps 60, 120 and 180) and compares every body's transform and velocities, every joint's
@@ -406,7 +408,7 @@ func jointsAGoldenRunScene(workerCount int) string {
 }
 
 func jointsAGoldenCompare(got string) {
-	data, err := os.ReadFile("testdata/joints_a_golden.txt")
+	data, err := os.ReadFile("testdata/golem_post_toi/joints_a_golden.txt")
 	Expect(err).NotTo(HaveOccurred())
 	want := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 	lines := strings.Split(strings.TrimRight(got, "\n"), "\n")
@@ -419,11 +421,11 @@ func jointsAGoldenCompare(got string) {
 }
 
 var _ = Describe("JointsAGoldenTest", func() {
-	It("MatchesC", func() {
+	It("MatchesCorrectedC", func() {
 		jointsAGoldenCompare(jointsAGoldenRunScene(1))
 	})
 
-	It("MatchesCWithWorkers", func() {
+	It("MatchesCorrectedCWithWorkers", func() {
 		jointsAGoldenCompare(jointsAGoldenRunScene(2))
 		jointsAGoldenCompare(jointsAGoldenRunScene(4))
 	})

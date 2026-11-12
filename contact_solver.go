@@ -51,6 +51,7 @@ type contactConstraint struct {
 	invMassA, invMassB float32
 	invIA, invIB       Matrix3
 	softness           softness
+	previousTOI        bool
 	rollingMass        Matrix3
 	friction           float32
 	restitution        float32
@@ -232,11 +233,14 @@ func prepareContactsMesh(block solverBlock, context *stepContext) {
 			contactConstraint.friction = contact.friction
 			contactConstraint.restitution = contact.restitution
 			contactConstraint.rollingResistance = contact.rollingResistance
+			contactConstraint.previousTOI = world.enableContinuous &&
+				((indexA != NullIndex && bodySims[indexA].flags&hadTimeOfImpact != 0) ||
+					(indexB != NullIndex && bodySims[indexB].flags&hadTimeOfImpact != 0))
 
 			// Only sample contact point normal velocity if needed.
 			haveRestitution := contact.restitution > 0.0
 			hitEvents := (contact.flags & simEnableHitEvent) != 0
-			sampleVelocity := haveRestitution || hitEvents
+			sampleVelocity := haveRestitution || hitEvents || contactConstraint.previousTOI
 			anyRestitution = anyRestitution || haveRestitution
 
 			vA := Vec3Zero
@@ -559,6 +563,13 @@ func pushContactsMesh(block solverBlock, context *stepContext) {
 					velocityBias = MaxFloat(float32(float32(softness.massScale*softness.biasRate)*s), -contactSpeed)
 					massScale = softness.massScale
 					impulseScale = softness.impulseScale
+				}
+				// A TOI clips position but retains impact velocity for this solve.
+				// Soft compliance must not advance that velocity through the surface
+				// before relaxation. Keep the existing bounded recovery bias.
+				if contactConstraint.previousTOI && cp.relativeVelocity < 0.0 {
+					massScale = 1.0
+					impulseScale = 0.0
 				}
 
 				// relative normal velocity at contact

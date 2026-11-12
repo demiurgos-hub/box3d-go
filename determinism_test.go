@@ -17,17 +17,22 @@ import (
 // PORT: TracyCFrameMark is dropped. printf goes to GinkgoWriter. Double precision is not ported,
 // so only the float goldens are kept.
 const (
-	ragdollSleepStep         = 291
-	ragdollHash              = 0xFF4C605B
-	wavePileSleepStep        = 272
-	wavePileHash             = 0x266F83B0
-	querySpawnSleepStep      = 242
-	querySpawnHash           = 0xF3AD9BA6
-	querySpawnHitCount       = 59
-	querySpawnQueryHash      = 0xE3271F3D
-	meshDropSleepStep        = 226
-	meshDropHash             = 0xD2FF069D
-	determinismGoldenEnabled = MaxManifoldPoints == 4
+	// Corrected pinned-C output: testdata/golem_post_toi/determinism.txt.
+	ragdollSleepStep          = 371
+	ragdollHash               = 0x3983DF54
+	upstreamRagdollSleepStep  = 291
+	upstreamRagdollHash       = 0xFF4C605B
+	wavePileSleepStep         = 272
+	wavePileHash              = 0x266F83B0
+	querySpawnSleepStep       = 242
+	querySpawnHash            = 0xF3AD9BA6
+	querySpawnHitCount        = 59
+	querySpawnQueryHash       = 0xE3271F3D
+	meshDropSleepStep         = 196
+	meshDropHash              = 0xBE70380B
+	upstreamMeshDropSleepStep = 226
+	upstreamMeshDropHash      = 0xD2FF069D
+	determinismGoldenEnabled  = MaxManifoldPoints == 4
 )
 
 // The goldens above pin exact values for the default four point manifold. A build that

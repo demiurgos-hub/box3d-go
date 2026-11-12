@@ -1,3 +1,5 @@
+// Fork reference: testdata/golem_post_toi applies only the documented native
+// post-TOI contact correction to pinned C. Original upstream fixtures remain intact.
 // Go-only test: no upstream counterpart. Replays a recording made by the C library
 // (testdata/replay_golden.b3rec, written by testdata/replay_golden_gen.c from the pinned upstream
 // sources efca0c184d40fd6a82016983f1601c4d23965867 compiled with -ffp-contract=off) and compares the
@@ -55,14 +57,14 @@ func replayGoldenPrintWorld(sb *strings.Builder, tag string, worldId WorldID) {
 }
 
 func replayGoldenData() []byte {
-	data, err := os.ReadFile("testdata/replay_golden.b3rec")
+	data, err := os.ReadFile("testdata/golem_post_toi/replay_golden.b3rec")
 	Expect(err).NotTo(HaveOccurred())
 	return data
 }
 
 // replayGoldenWant returns the golden lines with the given tag, the tag replaced by "original".
 func replayGoldenWant(tag string) []string {
-	data, err := os.ReadFile("testdata/replay_golden.txt")
+	data, err := os.ReadFile("testdata/golem_post_toi/replay_golden.txt")
 	Expect(err).NotTo(HaveOccurred())
 	var want []string
 	for _, line := range strings.Split(strings.TrimRight(string(data), "\n"), "\n") {
@@ -155,16 +157,16 @@ var _ = Describe("ReplayGoldenTest", func() {
 		Expect(hdr.registryOffset + hdr.registryByteCount).To(Equal(uint64(len(data))))
 	})
 
-	It("HeadlessReplayMatchesC", func() {
+	It("HeadlessReplayMatchesCorrectedC", func() {
 		replayGoldenCompare(replayGoldenHeadless(1), replayGoldenWant("original"))
 	})
 
-	It("HeadlessReplayMatchesCWithWorkers", func() {
+	It("HeadlessReplayMatchesCorrectedCWithWorkers", func() {
 		replayGoldenCompare(replayGoldenHeadless(2), replayGoldenWant("original"))
 		replayGoldenCompare(replayGoldenHeadless(4), replayGoldenWant("original"))
 	})
 
-	It("PlayerReplayMatchesC", func() {
+	It("PlayerReplayMatchesCorrectedC", func() {
 		// deserializeIntoShell rejects nil data and a C snapshot before touching the world.
 		Expect(deserializeIntoShell(nil, nil, nil)).To(BeFalse())
 		Expect(replayGoldenCSeedRejected()).To(BeTrue())

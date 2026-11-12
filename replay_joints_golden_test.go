@@ -1,3 +1,5 @@
+// Fork reference: testdata/golem_post_toi applies only the documented native
+// post-TOI contact correction to pinned C. Original upstream fixtures remain intact.
 // Go-only test: no upstream counterpart. Recording and replay with joints, against the pinned
 // upstream C sources (efca0c184d40fd6a82016983f1601c4d23965867) compiled with -ffp-contract=off.
 // testdata/replay_joints_golden_gen.c records a scene with every joint type (distance, motor,
@@ -546,7 +548,7 @@ func rjRun(workerCount int, startStep int) rjResult {
 
 // rjGolden returns the lines of testdata/replay_joints_golden.txt with the given tag.
 func rjGolden(tag string) []string {
-	data, err := os.ReadFile("testdata/replay_joints_golden.txt")
+	data, err := os.ReadFile("testdata/golem_post_toi/replay_joints_golden.txt")
 	Expect(err).NotTo(HaveOccurred())
 	var out []string
 	for _, line := range strings.Split(strings.TrimRight(string(data), "\n"), "\n") {
@@ -568,7 +570,7 @@ func rjGoldenFinal(tag string) []string {
 }
 
 func rjCData() []byte {
-	data, err := os.ReadFile("testdata/replay_joints_golden.b3rec")
+	data, err := os.ReadFile("testdata/golem_post_toi/replay_joints_golden.b3rec")
 	Expect(err).NotTo(HaveOccurred())
 	return data
 }
@@ -739,7 +741,7 @@ var _ = Describe("ReplayJointsGoldenTest", func() {
 		Expect(rjGolden("step")).To(HaveLen(rjSteps))
 	})
 
-	It("HeadlessReplayOfCRecordingMatchesC", func() {
+	It("HeadlessReplayOfCRecordingMatchesCorrectedC", func() {
 		for _, w := range workers {
 			steps, final := rjHeadless(rjCData(), w)
 			rjCompareLines(fmt.Sprintf("steps (%d workers)", w), steps, rjGolden("step"))
@@ -747,13 +749,13 @@ var _ = Describe("ReplayJointsGoldenTest", func() {
 		}
 	})
 
-	It("PlayerReplayOfCRecordingMatchesC", func() {
+	It("PlayerReplayOfCRecordingMatchesCorrectedC", func() {
 		for _, w := range workers {
 			rjPlayerChecks(rjCData(), w, rjGolden("step"), rjGoldenFinal("original"))
 		}
 	})
 
-	It("GoRecordingMatchesC", func() {
+	It("GoRecordingMatchesCorrectedC", func() {
 		for _, w := range workers {
 			res := rjRun(w, 0)
 			rjCompareLines(fmt.Sprintf("Go run steps (%d workers)", w), res.steps, rjGolden("step"))

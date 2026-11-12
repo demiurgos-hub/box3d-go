@@ -183,6 +183,7 @@ type contactConstraintWide struct {
 	friction           floatW
 	rollingResistance  floatW
 	restitution        floatW
+	previousTOI        floatW
 
 	manifoldCount int32
 }
@@ -335,6 +336,7 @@ func prepareConstraintW(base wideConstraintBuffer, ci, mi int, contacts *[laneCo
 	var simLanesA [laneCount]*bodySim
 	var simLanesB [laneCount]*bodySim
 	var manifoldCounts [laneCount]int
+	var previousTOILanes [laneCount]float32
 	hitEventLanes := 0
 	maxManifoldCount := 0
 
@@ -373,6 +375,9 @@ func prepareConstraintW(base wideConstraintBuffer, ci, mi int, contacts *[laneCo
 			if (contact.flags & simEnableHitEvent) != 0 {
 				hitEventLanes |= 1 << lane
 			}
+			if context.world.enableContinuous && (simLanesA[lane].flags|simLanesB[lane].flags)&hadTimeOfImpact != 0 {
+				previousTOILanes[lane] = 1.0
+			}
 			maxManifoldCount = MaxInt(maxManifoldCount, int(contact.manifoldCount))
 		} else {
 			c.indexA[lane] = 0
@@ -387,6 +392,7 @@ func prepareConstraintW(base wideConstraintBuffer, ci, mi int, contacts *[laneCo
 
 	validate(maxManifoldCount == manifoldCount, "maxManifoldCount == manifoldCount")
 	c.manifoldCount = int32(manifoldCount)
+	c.previousTOI = greaterThanW(loadW(previousTOILanes[:]), zeroW)
 
 	mA := gatherInvMassW(&simLanesA)
 	mB := gatherInvMassW(&simLanesB)
@@ -545,7 +551,7 @@ func prepareConstraintW(base wideConstraintBuffer, ci, mi int, contacts *[laneCo
 
 	// Only sample contact point normal velocity if needed.
 	haveRestitution := anyTrueW(greaterThanW(c.restitution, zeroW))
-	if hitEventLanes != 0 || haveRestitution {
+	if hitEventLanes != 0 || haveRestitution || anyTrueW(c.previousTOI) {
 		bA := gatherBodies(states, &c.indexA)
 		bB := gatherBodies(states, &c.indexB)
 
@@ -844,6 +850,10 @@ func pushContactsW(block solverBlock, context *stepContext, base wideConstraintB
 
 				pointMassScale := blendW(massScale, oneW, separated)
 				pointImpulseScale := blendW(impulseScale, zeroW, separated)
+				// Match scalar post-TOI impact handling; recovery bias is unchanged.
+				hardImpact := andW(c.previousTOI, lessThanW(cp.relativeVelocities, zeroW))
+				pointMassScale = blendW(pointMassScale, oneW, hardImpact)
+				pointImpulseScale = blendW(pointImpulseScale, zeroW, hardImpact)
 
 				uA := crossW(rA, cm.normal)
 				uB := crossW(rB, cm.normal)

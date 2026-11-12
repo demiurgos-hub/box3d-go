@@ -1,3 +1,5 @@
+// Fork reference: testdata/golem_post_toi applies only the documented native
+// post-TOI contact correction to pinned C. Original upstream fixtures remain intact.
 // Go-only test: no upstream counterpart. Steps a small world without joints (grid mesh ground,
 // tilted static box, box stack, rolling sphere, capsule, rock and cylinder hulls, a bullet and a
 // pile of small boxes and spheres) and compares every body's transform and velocities, the awake
@@ -188,7 +190,7 @@ func worldGoldenRunScene(workerCount int) string {
 }
 
 func worldGoldenCompare(got string) {
-	data, err := os.ReadFile("testdata/world_golden.txt")
+	data, err := os.ReadFile("testdata/golem_post_toi/world_golden.txt")
 	Expect(err).NotTo(HaveOccurred())
 	want := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 	lines := strings.Split(strings.TrimRight(got, "\n"), "\n")
@@ -201,11 +203,11 @@ func worldGoldenCompare(got string) {
 }
 
 var _ = Describe("WorldGoldenTest", func() {
-	It("MatchesC", func() {
+	It("MatchesCorrectedC", func() {
 		worldGoldenCompare(worldGoldenRunScene(1))
 	})
 
-	It("MatchesCWithWorkers", func() {
+	It("MatchesCorrectedCWithWorkers", func() {
 		worldGoldenCompare(worldGoldenRunScene(2))
 		worldGoldenCompare(worldGoldenRunScene(4))
 	})

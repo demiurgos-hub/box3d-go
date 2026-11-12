@@ -1,3 +1,5 @@
+// Fork reference: testdata/golem_post_toi applies only the documented native
+// post-TOI contact correction to pinned C. Original upstream fixtures remain intact.
 // Go-only test: no upstream counterpart. Records a joint-free scene and compares the recording
 // byte for byte against the pinned upstream C sources (efca0c184d40fd6a82016983f1601c4d23965867)
 // compiled with -ffp-contract=off. See testdata/recording_golden_gen.c; this file mirrors it line
@@ -308,7 +310,7 @@ func recGoldenSetWorldId(ops []byte, worldId uint32) []byte {
 }
 
 func recGoldenCompare(got []byte) {
-	want, err := os.ReadFile("testdata/recording_golden.b3rec")
+	want, err := os.ReadFile("testdata/golem_post_toi/recording_golden.b3rec")
 	Expect(err).NotTo(HaveOccurred())
 
 	gh, _, gops, greg := recGoldenParts(got)
@@ -335,13 +337,13 @@ func recGoldenCompare(got []byte) {
 }
 
 var _ = Describe("RecordingGoldenTest", func() {
-	It("MatchesC", func() {
+	It("MatchesCorrectedC", func() {
 		data, worldId := recGoldenRun(1)
 		worldId.Destroy()
 		recGoldenCompare(data)
 	})
 
-	It("MatchesCWithWorkers", func() {
+	It("MatchesCorrectedCWithWorkers", func() {
 		for _, workers := range []int{2, 4} {
 			data, worldId := recGoldenRun(workers)
 			worldId.Destroy()

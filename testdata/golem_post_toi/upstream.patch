@@ -1,0 +1,98 @@
+--- a/src/contact_solver.h
++++ b/src/contact_solver.h
+@@ -45,6 +45,7 @@
+ 	float invMassA, invMassB;
+ 	b3Matrix3 invIA, invIB;
+ 	b3Softness softness;
++	bool previousTOI;
+ 	b3Matrix3 rollingMass;
+ 	float friction;
+ 	float restitution;
+--- a/src/contact_solver.c
++++ b/src/contact_solver.c
+@@ -136,11 +136,14 @@
+ 			contactConstraint->friction = contact->friction;
+ 			contactConstraint->restitution = contact->restitution;
+ 			contactConstraint->rollingResistance = contact->rollingResistance;
++			contactConstraint->previousTOI = world->enableContinuous &&
++				((indexA != B3_NULL_INDEX && (bodySims[indexA].flags & b3_hadTimeOfImpact) != 0) ||
++				 (indexB != B3_NULL_INDEX && (bodySims[indexB].flags & b3_hadTimeOfImpact) != 0));
+ 
+ 			// Only sample contact point normal velocity if needed.
+ 			bool haveRestitution = contact->restitution > 0.0f;
+ 			bool hitEvents = ( contact->flags & b3_simEnableHitEvent ) != 0;
+-			bool sampleVelocity = haveRestitution || hitEvents;
++			bool sampleVelocity = haveRestitution || hitEvents || contactConstraint->previousTOI;
+ 			anyRestitution = anyRestitution || haveRestitution;
+ 
+ 			b3Vec3 vA = b3Vec3_zero;
+@@ -460,6 +463,13 @@
+ 					impulseScale = softness.impulseScale;
+ 				}
+ 
++				// A TOI retains impact velocity for this solve. Keep bounded recovery bias.
++				if (contactConstraint->previousTOI && cp->relativeVelocity < 0.0f)
++				{
++					massScale = 1.0f;
++					impulseScale = 0.0f;
++				}
++
+ 				// relative normal velocity at contact
+ 				b3Vec3 vrA = b3Add( vA, b3Cross( wA, rA ) );
+ 				b3Vec3 vrB = b3Add( vB, b3Cross( wB, rB ) );
+--- a/src/contact_solver_wide.inl
++++ b/src/contact_solver_wide.inl
+@@ -171,6 +171,7 @@
+ 	b3FloatW friction;
+ 	b3FloatW rollingResistance;
+ 	b3FloatW restitution;
++	b3FloatW previousTOI;
+ 
+ 	int manifoldCount;
+ } b3ContactConstraintWide;
+@@ -579,6 +580,7 @@
+ 	const b3BodySim* simLanesA[B3_SIMD_WIDTH];
+ 	const b3BodySim* simLanesB[B3_SIMD_WIDTH];
+ 	int manifoldCounts[B3_SIMD_WIDTH];
++	float previousTOILanes[B3_SIMD_WIDTH] = {0};
+ 	int hitEventLanes = 0;
+ 	int maxManifoldCount = 0;
+ 
+@@ -607,6 +609,10 @@
+ 			simLanesA[lane] = indexA == B3_NULL_INDEX ? &b3_zeroBodySim : sims + indexA;
+ 			simLanesB[lane] = indexB == B3_NULL_INDEX ? &b3_zeroBodySim : sims + indexB;
+ 			hitEventLanes |= ( contact->flags & b3_simEnableHitEvent ) != 0 ? 1 << lane : 0;
++			if (context->world->enableContinuous && ((simLanesA[lane]->flags | simLanesB[lane]->flags) & b3_hadTimeOfImpact) != 0)
++			{
++				previousTOILanes[lane] = 1.0f;
++			}
+ 			maxManifoldCount = b3MaxInt( maxManifoldCount, contact->manifoldCount );
+ 		}
+ 		else
+@@ -624,6 +630,7 @@
+ 	B3_VALIDATE( maxManifoldCount == manifoldCount );
+ 	B3_UNUSED( maxManifoldCount );
+ 	c->manifoldCount = manifoldCount;
++	c->previousTOI = b3GreaterThanW(b3LoadW(previousTOILanes), zeroW);
+ 
+ 	b3FloatW mA, mB;
+ 	B3_GATHER_LANES( mA, simLanesA, invMass );
+@@ -841,7 +848,7 @@
+ 
+ 	// Only sample contact point normal velocity if needed.
+ 	bool haveRestitution = b3AnyTrueW( b3GreaterThanW( c->restitution, zeroW ) );
+-	if ( hitEventLanes != 0 || haveRestitution )
++	if ( hitEventLanes != 0 || haveRestitution || b3AnyTrueW(c->previousTOI) )
+ 	{
+ 		b3BodyStateW bA = b3GatherBodies( states, c->indexA );
+ 		b3BodyStateW bB = b3GatherBodies( states, c->indexB );
+@@ -1162,6 +1169,9 @@
+ 
+ 				b3FloatW pointMassScale = b3BlendW( massScale, oneW, separated );
+ 				b3FloatW pointImpulseScale = b3BlendW( impulseScale, zeroW, separated );
++				b3FloatW hardImpact = b3AndW(c->previousTOI, b3LessThanW(cp->relativeVelocities, zeroW));
++				pointMassScale = b3BlendW(pointMassScale, oneW, hardImpact);
++				pointImpulseScale = b3BlendW(pointImpulseScale, zeroW, hardImpact);
+ 
+ 				b3Vec3W uA = b3CrossW( rA, cm->normal );
+ 				b3Vec3W uB = b3CrossW( rB, cm->normal );

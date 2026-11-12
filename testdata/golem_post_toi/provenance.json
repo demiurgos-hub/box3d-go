@@ -1,0 +1,84 @@
+{
+  "upstream_repository": "https://github.com/erincatto/box3d",
+  "upstream_commit": "efca0c184d40fd6a82016983f1601c4d23965867",
+  "original_archive_sha256": "884efd5b4a355b1bbc28c246bf2cb748ad3787c1bdb6073594737413f4b7eb15",
+  "correction": "Only upstream.patch contact normal response after prior TOI; no changes to native TOI, integration, cadence, query tolerance or geometry.",
+  "compiler": "clang version 22.1.8 (https://github.com/llvm/llvm-project.git ca7933e47d3a3451d81e72ac174dcb5aa28b59d1)\nTarget: x86_64-w64-windows-gnu\nThread model: posix\nInstalledDir: C:/Users/jarko/AppData/Local/Microsoft/WinGet/Packages/MartinStorsjo.LLVM-MinGW.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe/llvm-mingw-20260616-ucrt-x86_64/bin\nConfiguration file: C:/Users/jarko/AppData/Local/Microsoft/WinGet/Packages/MartinStorsjo.LLVM-MinGW.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe/llvm-mingw-20260616-ucrt-x86_64/bin/x86_64-w64-windows-gnu.cfg\n",
+  "flags": [
+    "-O2",
+    "-ffp-contract=off",
+    "-std=c17",
+    "-DBOX3D_DISABLE_SIMD",
+    "-DNDEBUG"
+  ],
+  "baseline_checks": {
+    "testdata\\world_golden.txt": {
+      "original_sha256": "9ffaa8f5b7d43c4847dc4ac134950d79bf6ff10021c8c20df8bf09f76a7454b3",
+      "unpatched_C_sha256": "f9518bce151575704e30df1ac60173f92b8b6b1dfe4b752fc5efdabacf51c6d0",
+      "comparison": "text with LF normalization"
+    },
+    "testdata\\joints_a_golden.txt": {
+      "original_sha256": "d589cb2840fea708bafcb1bc09b3473be88aa973cf7c649ae79145492b9d6ecf",
+      "unpatched_C_sha256": "b52e61cb362e377125ca1a65cf4c7a604563a78fb26573a70bec33d34abdbe96",
+      "comparison": "text with LF normalization"
+    },
+    "testdata\\recording_golden.b3rec": {
+      "original_sha256": "62a4e5b765b35cf5e89dc5e4c71682b005858d306d9bce94ef66e6eb18ddbd47",
+      "unpatched_C_sha256": "c2206755ec81b88ba5718b688fc4887ca0acb5837c8661a36b38504f8630da56",
+      "comparison": "header, op stream and registry; snapshot padding excluded as in original Go fixture"
+    },
+    "testdata\\replay_golden.txt": {
+      "original_sha256": "779135a363ba5d3edb0de264145a7213ed1a809cb1a9713e68f431f46d9a419e",
+      "unpatched_C_sha256": "5655b01440fd1c25c2893ba96c652361f6a6016abfbad36bf54f28f50d457a2f",
+      "comparison": "text with LF normalization"
+    },
+    "testdata\\replay_golden.b3rec": {
+      "original_sha256": "a944b4271189a9cb4a13d36c317581a91360dcccc58b53fe3a0d95774aaf236e",
+      "unpatched_C_sha256": "a944b4271189a9cb4a13d36c317581a91360dcccc58b53fe3a0d95774aaf236e",
+      "comparison": "header, op stream and registry; snapshot padding excluded as in original Go fixture"
+    },
+    "testdata\\replay_joints_golden.txt": {
+      "original_sha256": "fb439c337e4e355b5b36cb125f3fef76dac5e6cb6eb3a10606f1d5e5e065c05e",
+      "unpatched_C_sha256": "63cbd76a65bf34ce4e7c03a9e25a332d020a9a3d487d6cea25f6d9f03ec40f1b",
+      "comparison": "text with LF normalization"
+    },
+    "testdata\\replay_joints_golden.b3rec": {
+      "original_sha256": "44fc4961a30b0cdeed1830c4ce84fb2340e89bc9607956c989f483c37cd0d7db",
+      "unpatched_C_sha256": "44fc4961a30b0cdeed1830c4ce84fb2340e89bc9607956c989f483c37cd0d7db",
+      "comparison": "header, op stream and registry; snapshot padding excluded as in original Go fixture"
+    }
+  },
+  "workers": [
+    1,
+    4
+  ],
+  "worker_comparison": "text/binary identical except recording seed-snapshot padding; header, operation stream, registry identical",
+  "production": "Go remains CGO_ENABLED=0. C is offline reference generation only.",
+  "files": {
+    "determinism.txt": "c22954efe8e89ec815b53d67151a72cd3ae648a8f7274dbfe3c0db02839d3128",
+    "determinism_reference.c": "fe6f768bdff2b06039c1de1bcecc7278dff61f0978808ad203e26c7eded8b17d",
+    "joints_a_golden.txt": "9d9c0f9d7d9068e40427c006439290f65647796f07076819d075aa9253c63995",
+    "recording_golden.b3rec": "12d0db29aa7ba990dcdfb567c8080f5ae5e8439d56b32ffa8a6080586f812c3b",
+    "replay_golden.b3rec": "38046ade7a24143b25a709c084162acf72c86cc4269922a252b7b4bc6f4009f0",
+    "replay_golden.txt": "4cb0370adf74002f6c037806b16bc70d648cd7f2f8053a5dd856a4bdc67925da",
+    "replay_joints_golden.b3rec": "e360702c0b0a5042f070c0055bfc9de33cf52613a138b503c2c144dafa1a49e4",
+    "replay_joints_golden.txt": "ec0ec2c34dec7d154443a52227215da70c5a3890cc99086e9fac4f5cfb09d360",
+    "upstream.patch": "5c09acebcbebc62c84e79f5dd641356def0a36c6d674f27a159708a7d949c2b5",
+    "world_golden.txt": "81a7f2877190856252a6a23b1749c69ed3f85766601d02a4c6e91901d604f2a3"
+  },
+  "generator_sources": {
+    "world_golden_gen.c": "7ffa62f9cc62ef66790ceb616d31f5dd777394eb637c5a22b39b03c8b2cc7f51",
+    "joints_a_golden_gen.c": "2e2f77600b3947ff368cc5b5169c27bcc4b41ea0b5893128959a2af9e122d41d",
+    "recording_golden_gen.c": "6d080e59d0668bebbdcd243175058cb3e5960d4e2ae2e129a75880a299db6308",
+    "replay_golden_gen.c": "31b856a5f4a637b00f417ffe1d2945a03738201fd7e46103f9571134a1627b4a",
+    "replay_joints_golden_gen.c": "5b57466b088da825ba7b029a76e7c369ef71b8a6c8d971a893d3067a824b6b9f"
+  },
+  "reproduce": [
+    "Extract the exact upstream archive to a fresh external validation directory. Retain an unpatched copy.",
+    "In the source copy, git apply the included upstream.patch. No other source modification is used.",
+    "Compile src/*.c excluding wide8.c into a static library using flags above and -I include -I src -I shared.",
+    "Compile each generator_sources C program against that static library. world/joints_a take worker count; recording/replay/replay_joints take output .b3rec then worker count. Capture stdout.",
+    "Compile determinism_reference.c with shared/determinism.c, stability.c, human.c, utils.c and the same library; its argument is worker count.",
+    "Run workers1 and4, normalize only text CRLF to LF, retain binary recordings exactly. Compare baseline output to unchanged upstream goldens before trusting corrected outputs."
+  ]
+}
