@@ -342,6 +342,9 @@ func recWAABB(buf *recBuffer, v AABB) {
 
 // recWQUERYFILTER is b3RecW_QUERYFILTER.
 func recWQUERYFILTER(buf *recBuffer, v QueryFilter) {
+	if v.IgnoreShapeMask || v.BackFaces {
+		panic("box3d: Golem QueryFilter extensions are not supported by upstream record/replay")
+	}
 	recWU64(buf, v.CategoryBits)
 	recWU64(buf, v.MaskBits)
 }

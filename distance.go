@@ -960,7 +960,8 @@ func ShapeDistance(input *DistanceInput, cache *SimplexCache, simplexes []Simple
 
 // ShapeCast performs a linear shape cast of shape B moving and shape A fixed. Determines the hit point, normal, and
 // translation fraction. The query runs in frame A, so the hit point and normal are returned in frame A. Initially
-// touching shapes are a miss.
+// overlapping shapes return a hit at fraction zero with a zero normal, except
+// when CanEncroach permits advancing within the retained rest separation.
 func ShapeCast(input *ShapeCastPairInput) CastOutput {
 	// Compute tolerance
 	linearSlop := LinearSlop()

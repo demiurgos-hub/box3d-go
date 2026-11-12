@@ -875,7 +875,7 @@ func (bodyId BodyID) CastRay(origin Pos, translation Vec3, filter QueryFilter, m
 			continue
 		}
 
-		shapeOutput := rayCastShape(shape, transform, &shapeInput)
+		shapeOutput := rayCastShapeWithBackFaces(shape, transform, &shapeInput, filter.BackFaces)
 
 		if shapeOutput.Hit == false {
 			continue
@@ -938,7 +938,7 @@ func (bodyId BodyID) CastShape(origin Pos, proxy *ShapeProxy, translation Vec3, 
 			continue
 		}
 
-		shapeOutput := shapeCastShape(shape, transform, &shapeInput)
+		shapeOutput := shapeCastShapeWithBackFaces(shape, transform, &shapeInput, filter.BackFaces)
 
 		if shapeOutput.Hit == false {
 			continue

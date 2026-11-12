@@ -287,7 +287,7 @@ func rayCastCallback(input *RayCastInput, proxyId int, userData uint64, context 
 
 	localInput := *input
 	localInput.Origin = Vec3Zero
-	output := rayCastShape(shape, transform, &localInput)
+	output := rayCastShapeWithBackFaces(shape, transform, &localInput, queryFilter.BackFaces)
 
 	if output.Hit {
 		assert(output.Fraction <= input.MaxFraction, "output.fraction <= input->maxFraction")
@@ -482,7 +482,7 @@ func shapeCastCallback(input *BoxCastInput, proxyId int, userData uint64, contex
 	body := arrayGet(world.bodies, int(shape.bodyId))
 	transform := ToRelativeTransform(getBodyTransformQuick(world, body), worldContext.origin)
 
-	output := shapeCastShape(shape, transform, &localInput)
+	output := shapeCastShapeWithBackFaces(shape, transform, &localInput, queryFilter.BackFaces)
 
 	if output.Hit {
 		id := ShapeID{int32(shapeId + 1), world.worldId, shape.generation}
@@ -615,7 +615,7 @@ func moverCastCallback(input *BoxCastInput, proxyId int, userData uint64, contex
 	body := arrayGet(world.bodies, int(shape.bodyId))
 	transform := ToRelativeTransform(getBodyTransformQuick(world, body), worldContext.origin)
 
-	output := shapeCastShape(shape, transform, &localInput)
+	output := shapeCastShapeWithBackFaces(shape, transform, &localInput, queryFilter.BackFaces)
 	if output.Fraction == 0.0 {
 		// Ignore overlapping shapes
 		return worldContext.fraction

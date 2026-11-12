@@ -159,7 +159,7 @@ func shouldShapesCollide(filterA, filterB Filter) bool {
 // shouldQueryCollide is b3ShouldQueryCollide.
 func shouldQueryCollide(shapeFilter *Filter, queryFilter *QueryFilter) bool {
 	return (shapeFilter.CategoryBits&queryFilter.MaskBits) != 0 &&
-		(shapeFilter.MaskBits&queryFilter.CategoryBits) != 0
+		(queryFilter.IgnoreShapeMask || (shapeFilter.MaskBits&queryFilter.CategoryBits) != 0)
 }
 
 // isConvex is b3IsConvex.
@@ -740,7 +740,7 @@ func computeShapeAABB(shape *shape, transform Transform) AABB {
 		return ComputeCompoundAABB(shape.compound, transform)
 
 	case HeightShape:
-		return ComputeHeightFieldAABB(shape.heightField, transform)
+		return ComputeHeightFieldQueryAABB(shape.heightField, transform)
 
 	case HullShape:
 		return ComputeHullAABB(shape.hull, transform)
@@ -2515,7 +2515,10 @@ func getShapeUserMaterialId(shape *shape, childIndex, triangleIndex int) uint64 
 	if shape.materialCount == 0 {
 		return 0
 	}
+	return getShapeMaterials(shape)[getShapeMaterialIndex(shape, childIndex, triangleIndex)].UserMaterialId
+}
 
+func getShapeMaterialIndex(shape *shape, childIndex, triangleIndex int) int {
 	materialIndex := 0
 	if shape.typ == MeshShape {
 		indices := GetMeshMaterialIndices(shape.mesh.Data)
@@ -2541,5 +2544,5 @@ func getShapeUserMaterialId(shape *shape, childIndex, triangleIndex int) uint64 
 	}
 
 	materialIndex = ClampInt(materialIndex, 0, int(shape.materialCount)-1)
-	return getShapeMaterials(shape)[materialIndex].UserMaterialId
+	return materialIndex
 }

@@ -564,7 +564,9 @@ func getHeightFieldMaterial(heightField *HeightFieldData, triangleIndex int) int
 	return int(GetHeightFieldMaterialIndices(heightField)[cellIndex])
 }
 
-// ComputeHeightFieldAABB computes the bounding box of a transformed height field.
+// ComputeHeightFieldAABB computes the legacy authored-height bounding box of a
+// transformed height field. It preserves upstream cooked-blob compatibility.
+// Use ComputeHeightFieldQueryAABB for a conservative bound on quantized geometry.
 func ComputeHeightFieldAABB(shape *HeightFieldData, transform Transform) AABB {
 	return shape.AABB.Transform(transform)
 }
@@ -597,8 +599,9 @@ func ShapeCastHeightField(heightField *HeightFieldData, input *ShapeCastInput) C
 
 	shapeExtents := shapeBounds.Extents()
 	margin := Vec3{MaxAABBMargin(), MaxAABBMargin(), MaxAABBMargin()}
-	combinedBounds := AABB{Sub(Sub(heightField.AABB.LowerBound, shapeExtents), margin),
-		Add(Add(heightField.AABB.UpperBound, shapeExtents), margin)}
+	heightBounds := queryHeightFieldLocalBounds(heightField)
+	combinedBounds := AABB{Sub(Sub(heightBounds.LowerBound, shapeExtents), margin),
+		Add(Add(heightBounds.UpperBound, shapeExtents), margin)}
 
 	intersects, minFraction, maxFraction := rayCastAABB(combinedBounds, shapeStart, shapeEnd)
 	if intersects == false {

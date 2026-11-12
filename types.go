@@ -1216,6 +1216,16 @@ type QueryFilter struct {
 	// when not recording.
 	// PORT: an empty string stands for NULL.
 	Name string
+
+	// IgnoreShapeMask accepts shapes by (shape.CategoryBits & MaskBits) alone.
+	// This separates query visibility from solid collision participation. False
+	// preserves the upstream symmetric category/mask test.
+	IgnoreShapeMask bool
+
+	// BackFaces includes triangle backfaces in ray/shape casts. False preserves
+	// upstream one-sided casts. OverlapShape remains an unoriented volume test.
+	// Upstream record/replay cannot encode either extension flag and rejects them.
+	BackFaces bool
 }
 
 // DefaultQueryFilter: use this to initialize your query filter. Implemented below with types.c.
@@ -2926,7 +2936,7 @@ func DefaultFilter() Filter {
 
 // DefaultQueryFilter: use this to initialize your query filter
 func DefaultQueryFilter() QueryFilter {
-	filter := QueryFilter{DefaultCategoryBits, DefaultMaskBits, 0, ""}
+	filter := QueryFilter{CategoryBits: DefaultCategoryBits, MaskBits: DefaultMaskBits}
 	return filter
 }
 
