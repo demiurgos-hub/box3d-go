@@ -19,12 +19,19 @@ var ErrMotionStepPenetration = errors.New("box3d: motion step exceeded penetrati
 // safely bounded by admission. The caller must reject the entire frame.
 var ErrMotionStepUnsafePath = errors.New("box3d: solver motion exceeded admitted path")
 
+// MotionPenetrationRoundoff is the float32 classification allowance at the
+// solver penetration bound. It never changes query or placement thresholds.
+const MotionPenetrationRoundoff float32 = 1e-6
+
 // MotionStepOptions controls opt-in relative-motion collision subdivisions.
 // Mesh contact response still follows the solver's authored triangle winding;
 // motion admission uses two-sided surfaces conservatively.
 type MotionStepOptions struct {
-	MaxMicrosteps int
-	MaxRotation   float32
+	MaxMicrosteps                       int
+	MaxRotation                         float32
+	MaxDelta                            float32
+	VelocityIterations, RelaxIterations int
+	MaxPathRefinements                  int
 	// Tolerance is solver admission contact distance, independent of query APIs.
 	Tolerance      float32
 	MaxPenetration float32
@@ -32,7 +39,19 @@ type MotionStepOptions struct {
 
 // DefaultMotionStepOptions returns bounded motion admission settings.
 func DefaultMotionStepOptions() MotionStepOptions {
-	return MotionStepOptions{MaxMicrosteps: 2048, MaxRotation: .01, Tolerance: .001, MaxPenetration: .01}
+	return MotionStepOptions{MaxMicrosteps: 2048, MaxRotation: .01, MaxDelta: 1.0 / 240, VelocityIterations: 4, RelaxIterations: 2, MaxPathRefinements: 8192, Tolerance: .001, MaxPenetration: .01}
+}
+
+type motionSolverIterations struct{ velocity, relax int }
+
+var motionIterationSettings [MaxWorlds]motionSolverIterations
+
+func motionIterations(w *world) (int, int) {
+	s := motionIterationSettings[w.worldId]
+	if s.velocity == 0 {
+		return solverIterations, solverRelaxIterations
+	}
+	return s.velocity, s.relax
 }
 
 // MotionBodySample is an independently owned body-origin pose/velocity sample.
@@ -58,9 +77,10 @@ type MotionStepSample struct {
 
 // MotionStepResult reports work actually executed, including partial failed work.
 type MotionStepResult struct {
-	Microsteps int
-	Elapsed    float32
-	PairTests  int
+	Microsteps      int
+	Elapsed         float32
+	PairTests       int
+	PathRefinements int
 }
 
 type motionForce struct {
@@ -100,9 +120,12 @@ func motionLeafKey(a, b int32, fa, fb QueryFeature) motionPair {
 // a capacity qualification and may reject numerically unresolved trajectories.
 func (id WorldID) StepMotion(dt float32, options MotionStepOptions, observe func(MotionStepSample) error) (MotionStepResult, error) {
 	w := getUnlockedWorldFromId(id)
-	if w == nil || w.recording != nil || !IsValidFloat(dt) || dt <= 0 || options.MaxMicrosteps <= 0 || !IsValidFloat(options.MaxRotation) || options.MaxRotation <= 0 || options.MaxRotation > .25 || !IsValidFloat(options.Tolerance) || options.Tolerance <= 0 || options.Tolerance >= SpeculativeDistance()/4 || !IsValidFloat(options.MaxPenetration) || options.MaxPenetration <= 0 {
+	if w == nil || w.recording != nil || !IsValidFloat(dt) || dt <= 0 || options.MaxMicrosteps <= 0 || !IsValidFloat(options.MaxDelta) || options.MaxDelta <= 0 || options.MaxDelta > .05 || options.MaxPathRefinements < 1 || options.MaxPathRefinements > 131072 || options.VelocityIterations < 1 || options.VelocityIterations > 16 || options.RelaxIterations < 1 || options.RelaxIterations > 16 || !IsValidFloat(options.MaxRotation) || options.MaxRotation <= 0 || options.MaxRotation > .25 || !IsValidFloat(options.Tolerance) || options.Tolerance <= 0 || options.Tolerance >= SpeculativeDistance()/4 || !IsValidFloat(options.MaxPenetration) || options.MaxPenetration <= 0 {
 		return MotionStepResult{}, ErrMotionCastInvalid
 	}
+	previousIterations := motionIterationSettings[w.worldId]
+	motionIterationSettings[w.worldId] = motionSolverIterations{options.VelocityIterations, options.RelaxIterations}
+	defer func() { motionIterationSettings[w.worldId] = previousIterations }()
 	var forces []motionForce
 	for i := range w.bodies {
 		body := &w.bodies[i]
@@ -113,8 +136,12 @@ func (id WorldID) StepMotion(dt float32, options MotionStepOptions, observe func
 		forces = append(forces, motionForce{BodyID{body.id + 1, w.worldId, body.generation}, sim.force, sim.torque})
 	}
 	result := MotionStepResult{}
+	refinementBudget := options.MaxPathRefinements
 	initialDepths := map[motionPair]float32{}
 	remaining := dt
+	// Time bookkeeping keeps the sum of float32 solver deltas exact without
+	// changing any pose, velocity or solver arithmetic from float32.
+	elapsed := float64(0)
 	for remaining > 0 {
 		if result.Microsteps >= options.MaxMicrosteps {
 			return result, ErrMotionStepLimit
@@ -131,7 +158,12 @@ func (id WorldID) StepMotion(dt float32, options MotionStepOptions, observe func
 			sim.force = f.force
 			sim.torque = f.torque
 		}
-		h := remaining
+		h := MinFloat(remaining, options.MaxDelta)
+		// Absorb only a rounding-sized remainder into this actual solver step.
+		// A separate nanosecond step rescales cached impulses and resets sleep.
+		if remaining-h <= 4*fltEpsilon*options.MaxDelta {
+			h = remaining
+		}
 		// Rotation is bounded independently of translational TOI to retain stable
 		// changing contact normals and shortest-arc interpolation.
 		for _, f := range forces {
@@ -175,10 +207,13 @@ func (id WorldID) StepMotion(dt float32, options MotionStepOptions, observe func
 		motionInvalidateMovingMeshCaches(w)
 		id.Step(h, 1)
 		result.Microsteps++
-		result.Elapsed += h
-		remaining -= h
-		if remaining == 0 {
+		elapsed += float64(h)
+		if h == remaining {
 			result.Elapsed = dt
+			remaining = 0
+		} else {
+			result.Elapsed = float32(elapsed)
+			remaining = float32(float64(dt) - elapsed)
 		}
 		sample.EndFraction = result.Elapsed / dt
 		for i := range sample.Bodies {
@@ -188,8 +223,9 @@ func (id WorldID) StepMotion(dt float32, options MotionStepOptions, observe func
 			v.AngularVelocity = v.Body.GetAngularVelocity()
 		}
 		motionCopyEvents(id, &sample)
-		pairs, pathErr := motionValidatePaths(w, sample, options.Tolerance, options.MaxPenetration, initialDepths)
+		pairs, pathErr := motionValidatePaths(w, sample, options.Tolerance, options.MaxPenetration, initialDepths, &refinementBudget)
 		result.PairTests += pairs
+		result.PathRefinements = options.MaxPathRefinements - refinementBudget
 		if observe != nil {
 			if err := motionObserve(w, sample, observe); err != nil {
 				return result, err
@@ -227,7 +263,7 @@ func motionCheckPenetration(w *world, limit float32, initialDepths map[motionPai
 		}
 		key := motionPairKey(a.id, z.id)
 		bound := MaxFloat(limit, initialDepths[key])
-		if r.Depth > bound {
+		if r.Depth > bound+MotionPenetrationRoundoff {
 			return fmt.Errorf("%w: shapes %d/%d depth=%g bound=%g", ErrMotionStepPenetration, a.id, z.id, r.Depth, bound)
 		}
 		// Existing overlap can recover; its accepted depth may only decrease.
@@ -293,10 +329,10 @@ func motionStepFraction(w *world, bodies []motionForce, dt, tolerance, limit flo
 			moving = append(moving, motionSolverShape{s, path, motionBounds(path, motionShapeRadius(s, path.center), SpeculativeDistance())})
 		}
 	}
-	return motionEvaluatePairs(w, moving, dt, tolerance, initialDepths, initial, limit, false)
+	return motionEvaluatePairs(w, moving, dt, tolerance, initialDepths, initial, limit, false, nil)
 }
 
-func motionValidatePaths(w *world, sample MotionStepSample, tolerance, limit float32, initialDepths map[motionPair]float32) (int, error) {
+func motionValidatePaths(w *world, sample MotionStepSample, tolerance, limit float32, initialDepths map[motionPair]float32, budget *int) (int, error) {
 	var moving []motionSolverShape
 	for _, v := range sample.Bodies {
 		body := &w.bodies[v.Body.Index1-1]
@@ -313,11 +349,11 @@ func motionValidatePaths(w *world, sample MotionStepSample, tolerance, limit flo
 			}
 		}
 	}
-	_, pairs, err := motionEvaluatePairs(w, moving, sample.Delta, tolerance, initialDepths, false, limit, true)
+	_, pairs, err := motionEvaluatePairs(w, moving, sample.Delta, tolerance, initialDepths, false, limit, true, budget)
 	return pairs, err
 }
 
-func motionEvaluatePairs(w *world, moving []motionSolverShape, dt, tolerance float32, initialDepths map[motionPair]float32, initial bool, limit float32, validate bool) (float32, int, error) {
+func motionEvaluatePairs(w *world, moving []motionSolverShape, dt, tolerance float32, initialDepths map[motionPair]float32, initial bool, limit float32, validate bool, budget *int) (float32, int, error) {
 	sort.Slice(moving, func(i, j int) bool {
 		if moving[i].bounds.LowerBound.X != moving[j].bounds.LowerBound.X {
 			return moving[i].bounds.LowerBound.X < moving[j].bounds.LowerBound.X
@@ -362,7 +398,7 @@ func motionEvaluatePairs(w *world, moving []motionSolverShape, dt, tolerance flo
 		ra, rb := motionShapeRadius(a.shape, ma.center), motionShapeRadius(z.shape, mb.center)
 		// Admission targets actual contact, using tolerance only to stop early.
 		// Public queries instead sweep the entire expanded tolerance band.
-		_, failure = motionVisitShapeMotion(a.shape, z.shape, ma, mb, ToPos(base), tolerance, true, false, func(r MotionCastResult) error {
+		_, failure = motionVisitShapeMotion(a.shape, z.shape, ma, mb, ToPos(base), tolerance, true, false, func(r MotionCastResult, la, lb queryLeaf) error {
 			key := motionLeafKey(a.shape.id, z.shape.id, r.FeatureA, r.FeatureB)
 			if initial && r.Initial {
 				initialDepths[key] = r.Depth
@@ -374,8 +410,14 @@ func motionEvaluatePairs(w *world, moving []motionSolverShape, dt, tolerance flo
 			bound := MaxFloat(limit, initialDepths[key])
 			if validate {
 				depthBound := mulAdd(r.Depth, 1-r.Fraction, closing)
-				if depthBound > bound {
-					return fmt.Errorf("%w: shapes %d/%d projected depth=%g bound=%g initial=%g closure=%g", ErrMotionStepUnsafePath, a.shape.id, z.shape.id, depthBound, bound, r.Depth, closing)
+				if depthBound > bound+MotionPenetrationRoundoff {
+					if r.Initial && r.Depth > bound+MotionPenetrationRoundoff {
+						return ErrMotionStepPenetration
+					}
+					if err := motionCertifyLeafPath(la, lb, ma, mb, 0, .5, tolerance, bound, budget, 0); err != nil {
+						return err
+					}
+					return motionCertifyLeafPath(la, lb, ma, mb, .5, 1, tolerance, bound, budget, 0)
 				}
 				return nil
 			}
@@ -383,7 +425,12 @@ func motionEvaluatePairs(w *world, moving []motionSolverShape, dt, tolerance flo
 			if r.Fraction*travel > 0.25*SpeculativeDistance() {
 				fraction = MinFloat(fraction, r.Fraction)
 			} else if closing > 0 {
-				budget := MinFloat(0.25*SpeculativeDistance(), MaxFloat(.01*limit, .5*(bound-r.Depth)))
+				budget := MinFloat(0.25*SpeculativeDistance(), .5*(bound-r.Depth))
+				if budget <= 0 {
+					// An initial overlap at its inherited bound must still get a
+					// solver opportunity to recover; postvalidation forbids growth.
+					budget = .01 * limit
+				}
 				fraction = MinFloat(fraction, budget/closing)
 			}
 			return nil

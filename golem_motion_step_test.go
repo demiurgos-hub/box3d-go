@@ -162,7 +162,7 @@ func TestGolemMotionStepPassengerUnderCeilingRejectsCrush(t *testing.T) {
 	box := MakeBoxHull(2, .1, 2)
 	ceiling.CreateHullShape(&sd, &box.Base)
 	r, err := w.StepMotion(.05, DefaultMotionStepOptions(), nil)
-	if (!errors.Is(err, ErrMotionStepPenetration) && !errors.Is(err, ErrMotionStepUnsafePath)) || r.Microsteps == 0 || r.Elapsed >= .05 {
+	if (!errors.Is(err, ErrMotionStepPenetration) && !errors.Is(err, ErrMotionStepUnsafePath) && !errors.Is(err, ErrMotionStepLimit)) || r.Microsteps == 0 || r.Elapsed >= .05 {
 		t.Fatalf("crush was accepted: %+v %v floor=%v passenger=%v", r, err, floor.GetPosition(), passenger.GetPosition())
 	}
 }
@@ -258,7 +258,7 @@ func TestGolemMotionStepRejectsUnexpectedMotorCrossingMesh(t *testing.T) {
 	jd.MaxVelocityForce = 1e7
 	w.CreateMotorJoint(&jd)
 	r, err := w.StepMotion(.05, DefaultMotionStepOptions(), nil)
-	if !errors.Is(err, ErrMotionStepUnsafePath) || r.Microsteps != 1 {
+	if !errors.Is(err, ErrMotionStepUnsafePath) || r.Microsteps == 0 || r.Elapsed >= .05 {
 		t.Fatalf("unpredicted motor crossing was accepted: %+v %v body=%v", r, err, body.GetPosition())
 	}
 }
@@ -289,12 +289,34 @@ func TestGolemMotionStepInitialCompoundLeafCannotHideLaterWall(t *testing.T) {
 	jd.MaxVelocityForce = 1e7
 	w.CreateMotorJoint(&jd)
 	r, err := w.StepMotion(.05, DefaultMotionStepOptions(), nil)
-	if !errors.Is(err, ErrMotionStepUnsafePath) || r.Microsteps != 1 {
+	if !errors.Is(err, ErrMotionStepUnsafePath) || r.Microsteps == 0 || r.Elapsed >= .05 {
 		t.Fatalf("initial floor masked later wall: %+v %v body=%v", r, err, body.GetPosition())
 	}
 }
 
 func TestGolemMotionStepFourFixedPartitionsAndRestingFaces(t *testing.T) {
+	t.Run("rounded cadence boundary", func(t *testing.T) {
+		w := motionStepWorld(t)
+		w.SetGravity(Vec3{Y: -9.81})
+		body := motionStepBody(w, DynamicBody, Pos{}, Vec3Zero)
+		motionStepSphere(body, .1)
+		// A caller's float32 interval subtraction can be one ULP above 1/80.
+		dt := float32(.0375) - float32(.025)
+		var total float64
+		r, err := w.StepMotion(dt, DefaultMotionStepOptions(), func(s MotionStepSample) error {
+			total += float64(s.Delta)
+			if s.Delta < .004 || s.EndFraction <= s.StartFraction {
+				t.Fatalf("spurious remainder step: %+v", s)
+			}
+			return nil
+		})
+		if err != nil || r.Microsteps != 3 || r.Elapsed != dt || total != float64(dt) {
+			t.Fatalf("cadence lost duration: %+v total=%g dt=%g error=%v", r, total, dt, err)
+		}
+		if AbsFloat(body.GetLinearVelocity().Y-float32(-9.81*dt)) > 1e-6 {
+			t.Fatal(body.GetLinearVelocity())
+		}
+	})
 	t.Run("mesh", func(t *testing.T) {
 		w := motionStepWorld(t)
 		floor := motionStepBody(w, KinematicBody, Pos{Y: -2}, Vec3{Y: 80})

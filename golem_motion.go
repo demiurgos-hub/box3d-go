@@ -119,7 +119,7 @@ func motionCastShapes(a, b *shape, ma, mb motionPath, base Pos, tolerance float3
 	return motionVisitShapeMotion(a, b, ma, mb, base, tolerance, backFaces, true, nil)
 }
 
-func motionVisitShapeMotion(a, b *shape, ma, mb motionPath, base Pos, tolerance float32, backFaces, expandedBand bool, visit func(MotionCastResult) error) (MotionCastResult, error) {
+func motionVisitShapeMotion(a, b *shape, ma, mb motionPath, base Pos, tolerance float32, backFaces, expandedBand bool, visit func(MotionCastResult, queryLeaf, queryLeaf) error) (MotionCastResult, error) {
 	ra, rb := motionShapeRadius(a, ma.center), motionShapeRadius(b, mb.center)
 	if !IsValidFloat(ra) || !IsValidFloat(rb) {
 		return MotionCastResult{}, ErrMotionCastInvalid
@@ -165,7 +165,7 @@ func motionVisitShapeMotion(a, b *shape, ma, mb motionPath, base Pos, tolerance 
 				return
 			}
 			if visit != nil {
-				if err := visit(r); err != nil {
+				if err := visit(r, la, lb); err != nil {
 					failure = err
 					return
 				}

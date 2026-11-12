@@ -243,8 +243,10 @@ type stepContext struct {
 	meshPrepareSpans       []meshPrepareSpan
 	jointPrepareSpans      []jointPrepareSpan
 
-	activeColorCount int32
-	workerCount      int32
+	activeColorCount                                int32
+	workerCount                                     int32
+	motionVelocityIterations, motionRelaxIterations int
+	skipContactImpulseAccumulation                  bool
 
 	stages             []solverStage
 	stageCount         int32
@@ -1338,6 +1340,7 @@ func solverTask(taskContext any) {
 	workerContext := taskContext.(*workerContext)
 	workerIndex := workerContext.workerIndex
 	context := workerContext.context
+	solverIterations, solverRelaxIterations := context.motionVelocityIterations, context.motionRelaxIterations
 	activeColorCount := int(context.activeColorCount)
 	stages := context.stages
 	profile := &context.world.profile
@@ -1472,6 +1475,9 @@ func solverTask(taskContext any) {
 			// Relax constraints
 			useBias = false
 			for j := 0; j < solverRelaxIterations; j++ {
+				// Repeated constraint convergence at one time boundary is not
+				// another physical impulse. Accumulate the final relaxed total.
+				context.skipContactImpulseAccumulation = j+1 < solverRelaxIterations
 				solveJointsOverflow(context, useBias)
 				solveContactsOverflow(context)
 
@@ -1613,6 +1619,8 @@ var solverTaskNames = func() (names [MaxWorkers]string) {
 // solve is b3Solve.
 // Solve with graph coloring
 func solve(world *world, stepContext *stepContext) {
+	solverIterations, solverRelaxIterations := motionIterations(world)
+	stepContext.motionVelocityIterations, stepContext.motionRelaxIterations = solverIterations, solverRelaxIterations
 	simdShift := 2
 	if world.simdWidth == 8 {
 		simdShift = 3

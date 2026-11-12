@@ -180,3 +180,29 @@ without adding movement impulses or changing casts.
 and rotated-Y constraints through several revolutions while applying a transverse
 load, checking alignment and finite torque. Engine fixtures also verify that an
 upright Y-axis constraint permits yaw while resisting tilt.
+
+## Motion cadence and constraint convergence
+
+`StepMotion` defaults to a maximum 1/240-second internal step, four velocity
+iterations and two relaxation iterations. The opt-in counts are bounded at 16;
+ordinary `Step` keeps its upstream counts and golden behavior. Additional
+constraint passes use the same time boundary and do not integrate positions or
+forces again. Only the final relaxation pass accumulates its physical normal
+impulse, including scalar, overflow and wide/SIMD kernels, so force reporting and
+restitution do not multiply with the relaxation count. A rounding-sized time
+remainder is integrated in the preceding admitted step instead of a nanosecond
+step that would rescale cached impulses and interrupt sleeping.
+
+Actual path validation refines ambiguous leaf intervals against fresh geometry,
+with an explicit bounded refinement count (default 8,192). It does not treat a
+stale projected normal as fresh penetration or collapse compound children into
+a union MTD. The 10mm solver penetration policy has a separate 1-micrometre
+float32 classification allowance; reported depths remain unchanged and no
+query or placement threshold changes. Initial overlap may recover without
+increasing its inherited bound. Exhaustion, real excess penetration and
+unresolved motion still reject the whole frame.
+
+Engine regressions cover a dense 5,000-triangle floor with rotating, falling,
+jointed boxes at one/eight workers, a sleeping six-body mass-ratio stack,
+restitution energy, 100:1 momentum transfer and complete manifold force. These
+checks preserve the original contact tuning and do not qualify workload capacity.

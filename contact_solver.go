@@ -684,7 +684,9 @@ func solveContactsMesh(block solverBlock, context *stepContext) {
 				newImpulse := MaxFloat(cp.normalImpulse+deltaImpulse, 0.0)
 				deltaImpulse = newImpulse - cp.normalImpulse
 				cp.normalImpulse = newImpulse
-				cp.totalNormalImpulse += newImpulse
+				if !context.skipContactImpulseAccumulation {
+					cp.totalNormalImpulse += newImpulse
+				}
 				totalNormalImpulse += newImpulse
 				totalTwistLimit += float32(cp.leverArm * newImpulse)
 

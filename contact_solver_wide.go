@@ -943,7 +943,9 @@ func solveContactsW(block solverBlock, context *stepContext, base wideConstraint
 				impulse := maxW(negW(negImpulse), negW(cp.normalImpulses))
 				newImpulse := addW(cp.normalImpulses, impulse)
 				cp.normalImpulses = newImpulse
-				cp.totalNormalImpulses = addW(cp.totalNormalImpulses, newImpulse)
+				if !context.skipContactImpulseAccumulation {
+					cp.totalNormalImpulses = addW(cp.totalNormalImpulses, newImpulse)
+				}
 				totalNormalImpulse = addW(totalNormalImpulse, newImpulse)
 				totalTwistLimit = addW(totalTwistLimit, mulW(cp.leverArms, newImpulse))
 
