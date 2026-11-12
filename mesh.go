@@ -1436,6 +1436,19 @@ const maxStride = 4096
 // is the capacity (nil for none).
 // todo this should fail if the mesh has a height greater than B3_MESH_STACK_SIZE
 func CreateMesh(def *MeshDef, degenerateTriangleIndices []int32) *MeshData {
+	return createMesh(def, degenerateTriangleIndices, false)
+}
+
+// CreateMeshPreserveSmallTriangles retains input triangles with nonzero float32 area,
+// including faces below the ordinary solver-slop-based cooking threshold.
+// Zero-area triangles are still omitted; DegenerateCount follows the native
+// convention and counts only omitted triangles with three distinct indices.
+// Vertex welding, if requested, happens before this classification.
+func CreateMeshPreserveSmallTriangles(def *MeshDef, degenerateTriangleIndices []int32) *MeshData {
+	return createMesh(def, degenerateTriangleIndices, true)
+}
+
+func createMesh(def *MeshDef, degenerateTriangleIndices []int32, preserveSmallTriangles bool) *MeshData {
 	degenerateCapacity := len(degenerateTriangleIndices)
 
 	vec3Size := int(unsafe.Sizeof(Vec3{}))
@@ -1522,7 +1535,7 @@ func CreateMesh(def *MeshDef, degenerateTriangleIndices []int32) *MeshData {
 		normal := Cross(Sub(vertex2, vertex1), Sub(vertex3, vertex1))
 		area := float32(0.5 * Length(normal))
 
-		if area < minArea {
+		if area == 0 || (!preserveSmallTriangles && area < minArea) {
 			// b3Log( "degenerate: %d %d %d\n", index1, index2, index3 );
 
 			if index1 != index2 && index1 != index3 && index2 != index3 {

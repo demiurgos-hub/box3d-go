@@ -54,10 +54,11 @@ func negativeTransformFromSoA(R Matrix3, p Vec3, inX, inY, inZ []float32, n int,
 	}
 }
 
-// _Static_assert( B3_MAX_HULL_VERTICES == 128, "must be 128" );
+// The legacy mantissa-index fast path covers 128 points. Larger hulls use
+// exact scalar support below, without consuming more floating-point precision.
 const (
 	_ uint = MaxHullVertices - 128
-	_ uint = 128 - MaxHullVertices
+	_ uint = 256 - MaxHullVertices
 )
 
 // hullBitCount is B3_HULL_BIT_COUNT.
@@ -79,6 +80,16 @@ const hullBitCount = 7
 // todo consider using this for GJK
 // PORT: the support and vertexIndex out-parameters become return values.
 func getSupportWide(normal Vec3, vx, vy, vz []float32, n int, bias float32) (support float32, vertexIndex int) {
+	if n > 128 {
+		support = -fltMax
+		for i := 0; i < n; i++ {
+			d := float32(normal.X*vx[i]) + float32(normal.Y*vy[i]) + float32(normal.Z*vz[i])
+			if d > support {
+				support, vertexIndex = d, i
+			}
+		}
+		return support, vertexIndex
+	}
 	normalW := splatVW(normal)
 	biasV := splatW(bias)
 

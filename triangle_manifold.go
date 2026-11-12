@@ -740,8 +740,8 @@ func collideHullFace(manifold *LocalManifold, pointCapacity int, triangle *trian
 	// Save cache
 	cache.Separation = minSeparation
 	cache.Type = uint8(FaceAxisB)
-	cache.IndexA = uint8(query.indexA)
-	cache.IndexB = uint8(query.indexB)
+	cache.IndexA = uint16(query.indexA)
+	cache.IndexB = uint16(query.indexB)
 	return minSeparation
 }
 
@@ -855,8 +855,8 @@ func collideTriangleFace(manifold *LocalManifold, pointCapacity int, triangle *t
 	// Save cache
 	cache.Separation = minSeparation
 	cache.Type = uint8(FaceAxisA)
-	cache.IndexA = uint8(query.indexA)
-	cache.IndexB = uint8(query.indexB)
+	cache.IndexA = uint16(query.indexA)
+	cache.IndexB = uint16(query.indexB)
 	return minSeparation
 }
 
@@ -902,8 +902,8 @@ func collideTriangleAndHullEdges(manifold *LocalManifold, capacity int, triangle
 	// Save cache
 	cache.Separation = separation
 	cache.Type = uint8(EdgePairAxis)
-	cache.IndexA = uint8(query.indexA)
-	cache.IndexB = uint8(query.indexB)
+	cache.IndexA = uint16(query.indexA)
+	cache.IndexB = uint16(query.indexB)
 
 	manifold.Normal = query.normal
 	manifold.PointCount = 1
@@ -1179,8 +1179,8 @@ func CollideTriangleAndHull(manifold *LocalManifold, capacity int, v1, v2, v3 Ve
 		// Separating axis found
 		cache.Separation = faceQueryA.separation
 		cache.Type = uint8(FaceAxisA)
-		cache.IndexA = uint8(faceQueryA.indexA)
-		cache.IndexB = uint8(faceQueryA.indexB)
+		cache.IndexA = uint16(faceQueryA.indexA)
+		cache.IndexB = uint16(faceQueryA.indexB)
 		return
 	}
 
@@ -1189,8 +1189,8 @@ func CollideTriangleAndHull(manifold *LocalManifold, capacity int, v1, v2, v3 Ve
 		// Separating axis found
 		cache.Separation = faceQueryB.separation
 		cache.Type = uint8(FaceAxisB)
-		cache.IndexA = uint8(faceQueryB.indexA)
-		cache.IndexB = uint8(faceQueryB.indexB)
+		cache.IndexA = uint16(faceQueryB.indexA)
+		cache.IndexB = uint16(faceQueryB.indexB)
 		return
 	}
 
@@ -1199,8 +1199,8 @@ func CollideTriangleAndHull(manifold *LocalManifold, capacity int, v1, v2, v3 Ve
 		// Separating axis found
 		cache.Separation = edgeQuery.separation
 		cache.Type = uint8(EdgePairAxis)
-		cache.IndexA = uint8(edgeQuery.indexA)
-		cache.IndexB = uint8(edgeQuery.indexB)
+		cache.IndexA = uint16(edgeQuery.indexA)
+		cache.IndexB = uint16(edgeQuery.indexB)
 		return
 	}
 

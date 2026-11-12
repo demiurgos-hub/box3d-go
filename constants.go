@@ -126,13 +126,13 @@ const MaxManifoldPoints = 4
 const GyroscopicIterations = 1
 
 // MaxHullVertices is the maximum number of convex hull vertices. This is fixed for performance reasons.
-const MaxHullVertices = 128
+const MaxHullVertices = 256
 
 // MaxHullFaces is the maximum number of convex hull faces.
-const MaxHullFaces = 128
+const MaxHullFaces = 512
 
 // MaxHullEdges is the maximum number of convex hull edges. Full edges, not half-edges.
-const MaxHullEdges = 128
+const MaxHullEdges = 768
 
 // ParallelEdgeTol is the relative tolerance used to determine if two edges are parallel.
 const ParallelEdgeTol float32 = 0.005

@@ -57,14 +57,14 @@ func replayGoldenPrintWorld(sb *strings.Builder, tag string, worldId WorldID) {
 }
 
 func replayGoldenData() []byte {
-	data, err := os.ReadFile("testdata/golem_native_sweep/replay_golden.b3rec")
+	data, err := os.ReadFile("testdata/golem_hull_topology/replay_golden.b3rec")
 	Expect(err).NotTo(HaveOccurred())
 	return data
 }
 
 // replayGoldenWant returns the golden lines with the given tag, the tag replaced by "original".
 func replayGoldenWant(tag string) []string {
-	data, err := os.ReadFile("testdata/golem_native_sweep/replay_golden.txt")
+	data, err := os.ReadFile("testdata/golem_hull_topology/replay_golden.txt")
 	Expect(err).NotTo(HaveOccurred())
 	var want []string
 	for _, line := range strings.Split(strings.TrimRight(string(data), "\n"), "\n") {

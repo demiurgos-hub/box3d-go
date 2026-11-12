@@ -109,8 +109,8 @@ func queryFaceDirectionHullAndCapsule(hull *HullData, capsule *Capsule, capsuleT
 	return separatingAxis{
 		normal:     planes[maxFaceIndex].Normal,
 		separation: maxFaceSeparation,
-		indexA:     int32(uint8(maxFaceIndex)),
-		indexB:     int32(uint8(maxVertexIndex)),
+		indexA:     int32(maxFaceIndex),
+		indexB:     int32(maxVertexIndex),
 	}
 }
 
@@ -1022,8 +1022,8 @@ func buildFaceAContact(manifold *LocalManifold, capacity int, hullA, hullB *Hull
 	// Save cache
 	cache.Separation = minSeparation
 	cache.Type = uint8(FaceAxisA)
-	cache.IndexA = uint8(query.indexA)
-	cache.IndexB = uint8(query.indexB)
+	cache.IndexA = uint16(query.indexA)
+	cache.IndexB = uint16(query.indexB)
 
 	return true
 }
@@ -1063,8 +1063,8 @@ func buildFaceBContact(manifold *LocalManifold, capacity int, hullA, hullB *Hull
 	}
 
 	cache.Type = uint8(FaceAxisB)
-	cache.IndexA = uint8(query.indexA)
-	cache.IndexB = uint8(query.indexB)
+	cache.IndexA = uint16(query.indexA)
+	cache.IndexB = uint16(query.indexB)
 
 	return true
 }
@@ -1121,8 +1121,8 @@ func buildEdgeContact(manifold *LocalManifold, hullA, hullB *HullData,
 	// Save cache
 	cache.Separation = separation
 	cache.Type = uint8(EdgePairAxis)
-	cache.IndexA = uint8(query.indexA)
-	cache.IndexB = uint8(query.indexB)
+	cache.IndexA = uint16(query.indexA)
+	cache.IndexB = uint16(query.indexB)
 
 	return true
 }
@@ -1361,19 +1361,19 @@ func collideHullsAtWidth(manifold *LocalManifold, capacity int, hullA, hullB *Hu
 		if axisQuery.separatedFeature == FaceAxisA {
 			validate(axisQuery.faceA.separation > speculativeDistance, "axisQuery.faceA.separation > speculativeDistance")
 			cache.Separation = axisQuery.faceA.separation
-			cache.IndexA = uint8(axisQuery.faceA.indexA)
-			cache.IndexB = uint8(axisQuery.faceA.indexB)
+			cache.IndexA = uint16(axisQuery.faceA.indexA)
+			cache.IndexB = uint16(axisQuery.faceA.indexB)
 		} else if axisQuery.separatedFeature == FaceAxisB {
 			validate(axisQuery.faceB.separation > speculativeDistance, "axisQuery.faceB.separation > speculativeDistance")
 			cache.Separation = axisQuery.faceB.separation
-			cache.IndexA = uint8(axisQuery.faceB.indexA)
-			cache.IndexB = uint8(axisQuery.faceB.indexB)
+			cache.IndexA = uint16(axisQuery.faceB.indexA)
+			cache.IndexB = uint16(axisQuery.faceB.indexB)
 		} else {
 			assert(axisQuery.separatedFeature == EdgePairAxis, "axisQuery.separatedFeature == b3_edgePairAxis")
 			validate(axisQuery.edge.separation > speculativeDistance, "axisQuery.edge.separation > speculativeDistance")
 			cache.Separation = axisQuery.edge.separation
-			cache.IndexA = uint8(axisQuery.edge.indexA)
-			cache.IndexB = uint8(axisQuery.edge.indexB)
+			cache.IndexA = uint16(axisQuery.edge.indexA)
+			cache.IndexB = uint16(axisQuery.edge.indexB)
 		}
 		return
 	}

@@ -379,7 +379,7 @@ func (g *mcGoldenGen) reduceSection() {
 			points[i].Point.Y = float32(0.1 * g.rnd())
 			points[i].Point.Z = g.rnd()
 			points[i].Separation = float32(0.02 * g.rnd())
-			points[i].Pair.Index1 = uint8(i)
+			points[i].Pair.Index1 = uint16(i)
 			points[i].TriangleIndex = int32(g.rndInt(100))
 		}
 

@@ -1,0 +1,220 @@
+--- a/include/box3d/constants.h
++++ b/include/box3d/constants.h
+@@ -121 +121 @@
+-#define B3_MAX_HULL_VERTICES 128
++#define B3_MAX_HULL_VERTICES 256
+@@ -124 +124 @@
+-#define B3_MAX_HULL_FACES 128
++#define B3_MAX_HULL_FACES 512
+@@ -127 +127 @@
+-#define B3_MAX_HULL_EDGES 128
++#define B3_MAX_HULL_EDGES 768
+--- a/include/box3d/types.h
++++ b/include/box3d/types.h
+@@ -1998 +1998 @@
+-	uint8_t edge;
++	uint16_t edge;
+@@ -2005 +2005 @@
+-	uint8_t next;
++	uint16_t next;
+@@ -2008 +2008 @@
+-	uint8_t twin;
++	uint16_t twin;
+@@ -2011 +2011 @@
+-	uint8_t origin;
++	uint16_t origin;
+@@ -2014 +2014 @@
+-	uint8_t face;
++	uint16_t face;
+@@ -2022 +2022 @@
+-	uint8_t edge;
++	uint16_t edge;
+@@ -2026 +2026 @@
+-#define B3_HULL_VERSION 0x6B1E39D4A87C25F3ull
++#define B3_HULL_VERSION 0x6B1E39D4A87C25F4ull
+@@ -2108 +2108 @@
+-	uint8_t padding[2];			 ///< Explicit padding.
++	uint8_t padding[4];			 ///< Explicit padding.
+@@ -2774 +2774 @@
+-	uint8_t indexA;
++	uint16_t indexA;
+@@ -2777 +2777 @@
+-	uint8_t indexB;
++	uint16_t indexB;
+@@ -2794 +2794 @@
+-	uint8_t index1;
++	uint16_t index1;
+@@ -2798 +2798 @@
+-	uint8_t index2;
++	uint16_t index2;
+--- a/src/convex_manifold.c
++++ b/src/convex_manifold.c
+@@ -118,2 +118,2 @@
+-		.indexA = (uint8_t)maxFaceIndex,
+-		.indexB = (uint8_t)maxVertexIndex,
++		.indexA = (uint16_t)maxFaceIndex,
++		.indexB = (uint16_t)maxVertexIndex,
+@@ -1143,2 +1143,2 @@
+-	cache->indexA = (uint8_t)query.indexA;
+-	cache->indexB = (uint8_t)query.indexB;
++	cache->indexA = (uint16_t)query.indexA;
++	cache->indexB = (uint16_t)query.indexB;
+@@ -1186,2 +1186,2 @@
+-	cache->indexA = (uint8_t)query.indexA;
+-	cache->indexB = (uint8_t)query.indexB;
++	cache->indexA = (uint16_t)query.indexA;
++	cache->indexB = (uint16_t)query.indexB;
+@@ -1245,2 +1245,2 @@
+-	cache->indexA = (uint8_t)query.indexA;
+-	cache->indexB = (uint8_t)query.indexB;
++	cache->indexA = (uint16_t)query.indexA;
++	cache->indexB = (uint16_t)query.indexB;
+@@ -1505,2 +1505,2 @@
+-			cache->indexA = (uint8_t)axisQuery.faceA.indexA;
+-			cache->indexB = (uint8_t)axisQuery.faceA.indexB;
++			cache->indexA = (uint16_t)axisQuery.faceA.indexA;
++			cache->indexB = (uint16_t)axisQuery.faceA.indexB;
+@@ -1512,2 +1512,2 @@
+-			cache->indexA = (uint8_t)axisQuery.faceB.indexA;
+-			cache->indexB = (uint8_t)axisQuery.faceB.indexB;
++			cache->indexA = (uint16_t)axisQuery.faceB.indexA;
++			cache->indexB = (uint16_t)axisQuery.faceB.indexB;
+@@ -1520,2 +1520,2 @@
+-			cache->indexA = (uint8_t)axisQuery.edge.indexA;
+-			cache->indexB = (uint8_t)axisQuery.edge.indexB;
++			cache->indexA = (uint16_t)axisQuery.edge.indexA;
++			cache->indexB = (uint16_t)axisQuery.edge.indexB;
+--- a/src/convex_manifold_wide.inl
++++ b/src/convex_manifold_wide.inl
+@@ -50 +50 @@
+-_Static_assert( B3_MAX_HULL_VERTICES == 128, "must be 128" );
++_Static_assert( B3_MAX_HULL_VERTICES >= 128 && B3_MAX_HULL_VERTICES <= 256, "bounded support" );
+@@ -69,0 +70,12 @@
++	if ( n > 128 )
++	{
++		*support = -FLT_MAX;
++		*vertexIndex = 0;
++		for ( int i = 0; i < n; ++i )
++		{
++			float d = normal.x * vx[i] + normal.y * vy[i] + normal.z * vz[i];
++			if ( d > *support ) { *support = d; *vertexIndex = i; }
++		}
++		return;
++	}
++
+--- a/src/hull.c
++++ b/src/hull.c
+@@ -32 +32 @@
+-#define B3_HULL_MAX_COUNT ( UINT8_MAX + 1 )
++#define B3_HULL_MAX_COUNT ( 2 * B3_MAX_HULL_EDGES + 1 )
+@@ -2297,11 +2297,11 @@
+-		B3_ASSERT( 0 <= edge->next->finalIndex && edge->next->finalIndex <= UINT8_MAX );
+-		B3_ASSERT( 0 <= edge->twin->finalIndex && edge->twin->finalIndex <= UINT8_MAX );
+-		B3_ASSERT( 0 <= edge->face->finalIndex && edge->face->finalIndex <= UINT8_MAX );
+-		B3_ASSERT( 0 <= edge->origin->finalIndex && edge->origin->finalIndex <= UINT8_MAX );
+-
+-		edges[index].next = (uint8_t)edge->next->finalIndex;
+-		edges[index].twin = (uint8_t)edge->twin->finalIndex;
+-		edges[index].face = (uint8_t)edge->face->finalIndex;
+-		edges[index].origin = (uint8_t)edge->origin->finalIndex;
+-
+-		vertices[edge->origin->finalIndex].edge = (uint8_t)index;
++		B3_ASSERT( 0 <= edge->next->finalIndex && edge->next->finalIndex <= UINT16_MAX );
++		B3_ASSERT( 0 <= edge->twin->finalIndex && edge->twin->finalIndex <= UINT16_MAX );
++		B3_ASSERT( 0 <= edge->face->finalIndex && edge->face->finalIndex <= UINT16_MAX );
++		B3_ASSERT( 0 <= edge->origin->finalIndex && edge->origin->finalIndex <= UINT16_MAX );
++
++		edges[index].next = (uint16_t)edge->next->finalIndex;
++		edges[index].twin = (uint16_t)edge->twin->finalIndex;
++		edges[index].face = (uint16_t)edge->face->finalIndex;
++		edges[index].origin = (uint16_t)edge->origin->finalIndex;
++
++		vertices[edge->origin->finalIndex].edge = (uint16_t)index;
+@@ -2317,3 +2317,3 @@
+-		B3_ASSERT( 0 <= face->edge->finalIndex && face->edge->finalIndex <= UINT8_MAX );
+-
+-		faces[index].edge = (uint8_t)face->edge->finalIndex;
++		B3_ASSERT( 0 <= face->edge->finalIndex && face->edge->finalIndex <= UINT16_MAX );
++
++		faces[index].edge = (uint16_t)face->edge->finalIndex;
+@@ -2396 +2396 @@
+-_Static_assert( sizeof( b3BoxHull ) == 696, "unexpected box hull size" );
++_Static_assert( sizeof( b3BoxHull ) == 808, "unexpected box hull size" );
+@@ -2469,2 +2469,2 @@
+-				uint8_t nextIndex = edge->next;
+-				edge->next = (uint8_t)prevEdgeIndex;
++				uint16_t nextIndex = edge->next;
++				edge->next = (uint16_t)prevEdgeIndex;
+@@ -2531,2 +2531,2 @@
+-		uint8_t startEdgeIndex = face->edge;
+-		uint8_t currentEdgeIndex = startEdgeIndex;
++		uint16_t startEdgeIndex = face->edge;
++		uint16_t currentEdgeIndex = startEdgeIndex;
+--- a/src/manifold.c
++++ b/src/manifold.c
+@@ -71,2 +71,2 @@
+-	B3_ASSERT( 0 <= index1 && index1 <= UINT8_MAX );
+-	B3_ASSERT( 0 <= index2 && index2 <= UINT8_MAX );
++	B3_ASSERT( 0 <= index1 && index1 <= 16383 );
++	B3_ASSERT( 0 <= index2 && index2 <= 16383 );
+@@ -75 +75 @@
+-	pair.index1 = (uint8_t)index1;
++	pair.index1 = (uint16_t)index1;
+@@ -77 +77 @@
+-	pair.index2 = (uint8_t)index2;
++	pair.index2 = (uint16_t)index2;
+@@ -163 +163 @@
+-			vertex.pair.index2 = (uint8_t)edge;
++			vertex.pair.index2 = (uint16_t)edge;
+@@ -179 +179 @@
+-			vertex.pair.index1 = (uint8_t)edge;
++			vertex.pair.index1 = (uint16_t)edge;
+--- a/src/manifold.h
++++ b/src/manifold.h
+@@ -9 +9 @@
+-#define B3_MAX_CLIP_POINTS 64
++#define B3_MAX_CLIP_POINTS ( 2 * B3_MAX_HULL_VERTICES )
+@@ -66,2 +66,4 @@
+-	return ( (uint32_t)pair.owner1 << 24 ) | ( (uint32_t)pair.index1 << 16 ) | ( (uint32_t)pair.owner2 << 8 ) |
+-		   (uint32_t)pair.index2;
++	B3_ASSERT( pair.owner1 <= 1 && pair.owner2 <= 1 && pair.index1 <= 16383 && pair.index2 <= 16383 );
++	return ( (uint32_t)( pair.index2 & 255 ) ) | ( (uint32_t)pair.owner2 << 8 ) |
++	       ( (uint32_t)( pair.index2 >> 8 ) << 9 ) | ( (uint32_t)( pair.index1 & 255 ) << 16 ) |
++	       ( (uint32_t)pair.owner1 << 24 ) | ( (uint32_t)( pair.index1 >> 8 ) << 25 );
+--- a/src/triangle_manifold.c
++++ b/src/triangle_manifold.c
+@@ -783,2 +783,2 @@
+-	cache->indexA = (uint8_t)query.indexA;
+-	cache->indexB = (uint8_t)query.indexB;
++	cache->indexA = (uint16_t)query.indexA;
++	cache->indexB = (uint16_t)query.indexB;
+@@ -899,2 +899,2 @@
+-	cache->indexA = (uint8_t)query.indexA;
+-	cache->indexB = (uint8_t)query.indexB;
++	cache->indexA = (uint16_t)query.indexA;
++	cache->indexB = (uint16_t)query.indexB;
+@@ -947,2 +947,2 @@
+-	cache->indexA = (uint8_t)query.indexA;
+-	cache->indexB = (uint8_t)query.indexB;
++	cache->indexA = (uint16_t)query.indexA;
++	cache->indexB = (uint16_t)query.indexB;
+@@ -1240,2 +1240,2 @@
+-		cache->indexA = (uint8_t)faceQueryA.indexA;
+-		cache->indexB = (uint8_t)faceQueryA.indexB;
++		cache->indexA = (uint16_t)faceQueryA.indexA;
++		cache->indexB = (uint16_t)faceQueryA.indexB;
+@@ -1251,2 +1251,2 @@
+-		cache->indexA = (uint8_t)faceQueryB.indexA;
+-		cache->indexB = (uint8_t)faceQueryB.indexB;
++		cache->indexA = (uint16_t)faceQueryB.indexA;
++		cache->indexB = (uint16_t)faceQueryB.indexB;
+@@ -1262,2 +1262,2 @@
+-		cache->indexA = (uint8_t)edgeQuery.indexA;
+-		cache->indexB = (uint8_t)edgeQuery.indexB;
++		cache->indexA = (uint16_t)edgeQuery.indexA;
++		cache->indexB = (uint16_t)edgeQuery.indexB;
+--- a/src/world_snapshot.c
++++ b/src/world_snapshot.c
+@@ -36 +36 @@
+-#define B3_SNAP_VERSION 11u // isotropic inertia tolerance
++#define B3_SNAP_VERSION 12u // widened hull and SAT topology

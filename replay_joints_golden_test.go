@@ -548,7 +548,7 @@ func rjRun(workerCount int, startStep int) rjResult {
 
 // rjGolden returns the lines of testdata/replay_joints_golden.txt with the given tag.
 func rjGolden(tag string) []string {
-	data, err := os.ReadFile("testdata/golem_post_toi/replay_joints_golden.txt")
+	data, err := os.ReadFile("testdata/golem_hull_topology/replay_joints_golden.txt")
 	Expect(err).NotTo(HaveOccurred())
 	var out []string
 	for _, line := range strings.Split(strings.TrimRight(string(data), "\n"), "\n") {
@@ -570,7 +570,7 @@ func rjGoldenFinal(tag string) []string {
 }
 
 func rjCData() []byte {
-	data, err := os.ReadFile("testdata/golem_post_toi/replay_joints_golden.b3rec")
+	data, err := os.ReadFile("testdata/golem_hull_topology/replay_joints_golden.b3rec")
 	Expect(err).NotTo(HaveOccurred())
 	return data
 }

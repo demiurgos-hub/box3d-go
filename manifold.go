@@ -12,7 +12,7 @@ package box3d
 // ---- manifold.h ----
 
 // maxClipPoints is B3_MAX_CLIP_POINTS.
-const maxClipPoints = 64
+const maxClipPoints = 2 * MaxHullVertices
 
 // separatingAxis is b3SeparatingAxis.
 type separatingAxis struct {
@@ -56,8 +56,11 @@ var featurePairSingle = FeaturePair{}
 
 // makeFeatureId is b3MakeFeatureId.
 func makeFeatureId(pair FeaturePair) uint32 {
-	return (uint32(pair.Owner1) << 24) | (uint32(pair.Index1) << 16) | (uint32(pair.Owner2) << 8) |
-		uint32(pair.Index2)
+	id, ok := EncodeFeaturePair(pair)
+	if !ok {
+		panic("box3d: invalid contact feature pair")
+	}
+	return id
 }
 
 // getBestAxis is b3GetBestAxis.
@@ -144,13 +147,15 @@ func findIncidentFace(hull *HullData, refNormal Vec3, vertexIndex int) int {
 
 // makeFeaturePair is b3MakeFeaturePair.
 func makeFeaturePair(owner1 featureOwner, index1 int, owner2 featureOwner, index2 int) FeaturePair {
-	assert(0 <= index1 && index1 <= 255, "0 <= index1 && index1 <= UINT8_MAX")
-	assert(0 <= index2 && index2 <= 255, "0 <= index2 && index2 <= UINT8_MAX")
+	if index1 < 0 || index1 > MaxFeatureIndex || index2 < 0 || index2 > MaxFeatureIndex ||
+		(owner1 != featureShapeA && owner1 != featureShapeB) || (owner2 != featureShapeA && owner2 != featureShapeB) {
+		panic("box3d: contact feature exceeds encoding bounds")
+	}
 
 	var pair FeaturePair
-	pair.Index1 = uint8(index1)
+	pair.Index1 = uint16(index1)
 	pair.Owner1 = uint8(owner1)
-	pair.Index2 = uint8(index2)
+	pair.Index2 = uint16(index2)
 	pair.Owner2 = uint8(owner2)
 	return pair
 }
@@ -228,7 +233,7 @@ func clipPolygon(out []clipVertex, polygon []clipVertex, count int, clipPlane Pl
 			vertex.separation = planeSeparation(refPlane, position)
 			vertex.pair = vertex2.pair
 			vertex.pair.Owner2 = uint8(featureShapeA)
-			vertex.pair.Index2 = uint8(edge)
+			vertex.pair.Index2 = uint16(edge)
 			out[outCount] = vertex
 			outCount += 1
 		} else if distance2 <= 0.0 && distance1 > 0.0 {
@@ -242,7 +247,7 @@ func clipPolygon(out []clipVertex, polygon []clipVertex, count int, clipPlane Pl
 			vertex.separation = planeSeparation(refPlane, position)
 			vertex.pair = vertex1.pair
 			vertex.pair.Owner1 = uint8(featureShapeA)
-			vertex.pair.Index1 = uint8(edge)
+			vertex.pair.Index1 = uint16(edge)
 			out[outCount] = vertex
 			outCount += 1
 

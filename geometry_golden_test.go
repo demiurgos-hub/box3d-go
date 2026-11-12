@@ -4,7 +4,8 @@
 // pinned upstream C sources (efca0c184d40fd6a82016983f1601c4d23965867) compiled with
 // -ffp-contract=off, bit for bit. The C output is identical for the NEON, SSE2,
 // BOX3D_DISABLE_SIMD and BOX3D_VALIDATE builds. See testdata/geometry_golden_gen.c; this file
-// mirrors it line by line.
+// mirrors it line by line. The selected corrected-C topology format is documented
+// in testdata/golem_hull_topology/README.md; original fixtures remain unchanged.
 //
 // SPDX-License-Identifier: MIT
 // Go port: github.com/gataengine/box3d-go authors.
@@ -898,7 +899,7 @@ var _ = Describe("GeometryGoldenTest", func() {
 		SetLogFcn(func(string) {})
 		defer SetLogFcn(defaultLogFcn)
 
-		want, err := os.ReadFile("testdata/geometry_golden.txt")
+		want, err := os.ReadFile("testdata/golem_hull_topology/geometry_golden.txt")
 		Expect(err).NotTo(HaveOccurred())
 
 		var g geometryGoldenGen

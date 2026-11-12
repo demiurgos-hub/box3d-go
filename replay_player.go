@@ -581,7 +581,7 @@ type recForeignSeed struct {
 // PORT: Go addition; world_snapshot.go owns the snapshot codec.
 const (
 	recSeedSnapMagic           uint32 = 0x33534E42
-	recSeedSnapVersion         uint32 = 11
+	recSeedSnapVersion         uint32 = snapVersion
 	recSeedSnapFlagDoublePrecs uint32 = 0x2
 )
 

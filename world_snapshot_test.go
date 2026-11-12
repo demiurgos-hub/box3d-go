@@ -10,6 +10,7 @@
 package box3d
 
 import (
+	"encoding/binary"
 	"os"
 	"unsafe"
 
@@ -101,6 +102,9 @@ var _ = Describe("WorldSnapshotTest", func() {
 
 		// Bad magic and short images
 		bad := append([]byte(nil), image...)
+		binary.LittleEndian.PutUint32(bad[4:8], 11)
+		Expect(deserializeIntoShell(bad, shell, rdr)).To(BeFalse())
+		bad = append([]byte(nil), image...)
 		bad[0] ^= 0xFF
 		Expect(deserializeIntoShell(bad, shell, rdr)).To(BeFalse())
 		Expect(deserializeIntoShell(image[:8], shell, rdr)).To(BeFalse())

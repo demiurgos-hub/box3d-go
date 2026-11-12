@@ -2,7 +2,9 @@
 // capsule queries, mover planes, polygon clipping, GJK distance, shape cast and time of impact against the pinned upstream C sources
 // (efca0c184d40fd6a82016983f1601c4d23965867) compiled with -ffp-contract=off, bit for bit and
 // byte for byte (hull images are compared through their byte count and content hash). See
-// testdata/hull_golden_gen.c; this file mirrors it line by line.
+// testdata/hull_golden_gen.c; this file mirrors it line by line. The selected
+// corrected-C topology format and original-fixture preservation are documented
+// in testdata/golem_hull_topology/README.md.
 //
 // SPDX-License-Identifier: MIT
 // Go port: github.com/gataengine/box3d-go authors.
@@ -324,7 +326,7 @@ var _ = Describe("HullGoldenTest", func() {
 		SetLogFcn(func(string) {})
 		defer SetLogFcn(defaultLogFcn)
 
-		want, err := os.ReadFile("testdata/hull_golden.txt")
+		want, err := os.ReadFile("testdata/golem_hull_topology/hull_golden.txt")
 		Expect(err).NotTo(HaveOccurred())
 
 		var g hullGoldenGen

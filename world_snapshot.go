@@ -42,7 +42,7 @@ import (
 // Snapshot image magic 'BNS3' and version
 const (
 	snapMagic   uint32 = 0x33534E42 // B3_SNAP_MAGIC
-	snapVersion uint32 = 11         // B3_SNAP_VERSION: isotropic inertia tolerance
+	snapVersion uint32 = 12         // Golem: widened hull topology and SAT feature indices
 )
 
 const (

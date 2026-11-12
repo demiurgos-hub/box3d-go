@@ -47,8 +47,8 @@ const (
 )
 
 // hullMaxCount is B3_HULL_MAX_COUNT.
-// Final hull is index-encoded with uint8_t, so vertex/edge/face counts are capped at 256.
-const hullMaxCount = 255 + 1
+// Final topology uses uint16 indices, bounded by the native hull limits.
+const hullMaxCount = 2*MaxHullEdges + 1
 
 // PORT: the quickhull builder keeps upstream's intrusive lists. A list node is the first field
 // of qhVertex and qhFace, so a node pointer is converted back to its owner with unsafe exactly
@@ -1317,7 +1317,7 @@ func (b *hullBuilder) hasHull() bool {
 }
 
 // construct builds the entire hull. Returns true iff the result satisfies Euler's identity.
-func (b *hullBuilder) construct(points []Vec3, pointCount, maxVertexCount int, origin Vec3, shiftedPoints []Vec3) bool {
+func (b *hullBuilder) construct(points []Vec3, pointCount, maxVertexCount int, origin Vec3, shiftedPoints []Vec3, requireComplete bool) bool {
 	if pointCount < 4 {
 		return false
 	}
@@ -1339,6 +1339,9 @@ func (b *hullBuilder) construct(points []Vec3, pointCount, maxVertexCount int, o
 		b.addVertexToHull(vertex)
 		vertex = b.nextConflictVertex()
 		budget -= 1
+	}
+	if requireComplete && vertex != nil {
+		return false
 	}
 
 	b.cleanHull(origin)
@@ -1955,6 +1958,21 @@ func updateHullBulkProperties(hull *HullData) bool {
 // or MaxHullEdges is exceeded.
 // PORT: points is a slice; pointCount is kept (it may be less than len(points)).
 func CreateHull(points []Vec3, pointCount, maxVertexCount int) *HullData {
+	return createHull(points, pointCount, maxVertexCount, false)
+}
+
+// CreateHullUnreduced builds a convex hull without discarding outside points to
+// meet a vertex budget. Interior, duplicate and coplanar points do not count
+// against the output limits. The ordinary float32 hull tolerance still applies;
+// nil reports invalid geometry or a hull that exceeds native topology limits.
+func CreateHullUnreduced(points []Vec3, pointCount int) *HullData {
+	return createHull(points, pointCount, MaxHullVertices, true)
+}
+
+func createHull(points []Vec3, pointCount, maxVertexCount int, requireComplete bool) *HullData {
+	if pointCount > len(points) {
+		return nil
+	}
 	if pointCount < 4 {
 		return nil
 	}
@@ -1968,7 +1986,7 @@ func CreateHull(points []Vec3, pointCount, maxVertexCount int) *HullData {
 	var builder hullBuilder
 	shiftedPoints := hullBuilderInit(&builder, &sizes)
 
-	ok := builder.construct(points, pointCount, clampedMaxCount, origin, shiftedPoints)
+	ok := builder.construct(points, pointCount, clampedMaxCount, origin, shiftedPoints, requireComplete)
 	if ok == false {
 		return nil
 	}
@@ -2106,17 +2124,17 @@ func CreateHull(points []Vec3, pointCount, maxVertexCount int) *HullData {
 
 	for index := range edgeCount {
 		edge := tempEdges[index]
-		assert(0 <= edge.next.finalIndex && edge.next.finalIndex <= 255, "0 <= edge->next->finalIndex && edge->next->finalIndex <= UINT8_MAX")
-		assert(0 <= edge.twin.finalIndex && edge.twin.finalIndex <= 255, "0 <= edge->twin->finalIndex && edge->twin->finalIndex <= UINT8_MAX")
-		assert(0 <= edge.face.finalIndex && edge.face.finalIndex <= 255, "0 <= edge->face->finalIndex && edge->face->finalIndex <= UINT8_MAX")
-		assert(0 <= edge.origin.finalIndex && edge.origin.finalIndex <= 255, "0 <= edge->origin->finalIndex && edge->origin->finalIndex <= UINT8_MAX")
+		assert(0 <= edge.next.finalIndex && edge.next.finalIndex < edgeCount, "next edge in range")
+		assert(0 <= edge.twin.finalIndex && edge.twin.finalIndex < edgeCount, "twin edge in range")
+		assert(0 <= edge.face.finalIndex && edge.face.finalIndex < faceCount, "face in range")
+		assert(0 <= edge.origin.finalIndex && edge.origin.finalIndex < vertexCount, "origin vertex in range")
 
-		edges[index].Next = uint8(edge.next.finalIndex)
-		edges[index].Twin = uint8(edge.twin.finalIndex)
-		edges[index].Face = uint8(edge.face.finalIndex)
-		edges[index].Origin = uint8(edge.origin.finalIndex)
+		edges[index].Next = uint16(edge.next.finalIndex)
+		edges[index].Twin = uint16(edge.twin.finalIndex)
+		edges[index].Face = uint16(edge.face.finalIndex)
+		edges[index].Origin = uint16(edge.origin.finalIndex)
 
-		vertices[edge.origin.finalIndex].Edge = uint8(index)
+		vertices[edge.origin.finalIndex].Edge = uint16(index)
 	}
 
 	nx := soaNormals
@@ -2125,9 +2143,9 @@ func CreateHull(points []Vec3, pointCount, maxVertexCount int) *HullData {
 
 	for index := range faceCount {
 		face := tempFaces[index]
-		assert(0 <= face.edge.finalIndex && face.edge.finalIndex <= 255, "0 <= face->edge->finalIndex && face->edge->finalIndex <= UINT8_MAX")
+		assert(0 <= face.edge.finalIndex && face.edge.finalIndex < edgeCount, "face edge in range")
 
-		faces[index].Edge = uint8(face.edge.finalIndex)
+		faces[index].Edge = uint16(face.edge.finalIndex)
 		planes[index] = face.plane
 
 		n := face.plane.Normal
@@ -2200,8 +2218,8 @@ func compareHullData(hull1, hull2 *HullData) bool {
 const (
 	_ uintptr = unsafe.Sizeof(HullData{}) - 152
 	_ uintptr = 152 - unsafe.Sizeof(HullData{})
-	_ uintptr = unsafe.Sizeof(BoxHull{}) - 696
-	_ uintptr = 696 - unsafe.Sizeof(BoxHull{})
+	_ uintptr = unsafe.Sizeof(BoxHull{}) - 808
+	_ uintptr = 808 - unsafe.Sizeof(BoxHull{})
 )
 
 // Implement b3HullMap: see hullMap and hullMapInit above.
@@ -2262,7 +2280,7 @@ func CloneAndTransformHull(original *HullData, transform Transform, scale Vec3) 
 			for {
 				edge := &edges[currentEdgeIndex]
 				nextIndex := edge.Next
-				edge.Next = uint8(prevEdgeIndex)
+				edge.Next = uint16(prevEdgeIndex)
 
 				if currentEdgeIndex < int(edge.Twin) {
 					twin := &edges[edge.Twin]

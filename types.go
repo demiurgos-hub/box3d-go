@@ -1815,33 +1815,33 @@ type HullVertex struct {
 	// A half-edge that has this vertex as the origin
 	// Can be used along with edge twins and winding order
 	// to traverse all the edges connected to this vertex.
-	Edge uint8
+	Edge uint16
 }
 
 // HullHalfEdge is the half-edge for hull data structure
 type HullHalfEdge struct {
 	// Next edge index CCW
-	Next uint8
+	Next uint16
 
 	// Twin edge index
-	Twin uint8
+	Twin uint16
 
 	// index of origin vertex and point
-	Origin uint8
+	Origin uint16
 
 	// Face to the left of this edge
-	Face uint8
+	Face uint16
 }
 
 // HullFace is a hull face. Hulls use a half-edge data structure, so a face
 // can be determined from a single half-edge index.
 type HullFace struct {
 	// An arbitrary half-edge on this face
-	Edge uint8
+	Edge uint16
 }
 
 // HullVersion is the 64-bit hull version. Useful for validating serialized data.
-const HullVersion uint64 = 0x6B1E39D4A87C25F3
+const HullVersion uint64 = 0x6B1E39D4A87C25F4
 
 // HullData is a convex hull.
 // Note: This data structure has data hanging off the end and cannot be directly copied.
@@ -1921,7 +1921,7 @@ type BoxHull struct {
 	BoxEdges    [24]HullHalfEdge // Box half-edges.
 	BoxPlanes   [6]Plane         // Box face planes.
 	BoxFaces    [6]HullFace      // Box faces.
-	Padding     [2]uint8         // Explicit padding.
+	Padding     [4]uint8         // Explicit padding.
 	Vx          [8]float32       // vertex x
 	Vy          [8]float32       // vertex y
 	Vz          [8]float32       // vertex z
@@ -2525,10 +2525,10 @@ type SATCache struct {
 	Type uint8
 
 	// Index of the feature on shape A.
-	IndexA uint8
+	IndexA uint16
 
 	// Index of the feature on shape B.
-	IndexB uint8
+	IndexB uint16
 
 	// Was the cache re-used?
 	Hit uint8
@@ -2544,11 +2544,11 @@ type FeaturePair struct {
 	// Incoming type (either edge on shape A or shape B)
 	Owner1 uint8
 	// Incoming edge index (into associated shape array)
-	Index1 uint8
+	Index1 uint16
 	// Outgoing type (either edge on shape A or shape B)
 	Owner2 uint8
 	// Outgoing edge index (into associated shape array)
-	Index2 uint8
+	Index2 uint16
 }
 
 // LocalManifoldPoint is a local manifold point and normal in frame A.

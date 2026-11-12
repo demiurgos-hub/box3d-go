@@ -310,7 +310,7 @@ func recGoldenSetWorldId(ops []byte, worldId uint32) []byte {
 }
 
 func recGoldenCompare(got []byte) {
-	want, err := os.ReadFile("testdata/golem_native_sweep/recording_golden.b3rec")
+	want, err := os.ReadFile("testdata/golem_hull_topology/recording_golden.b3rec")
 	Expect(err).NotTo(HaveOccurred())
 
 	gh, _, gops, greg := recGoldenParts(got)
