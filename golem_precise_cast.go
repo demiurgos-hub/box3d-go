@@ -16,54 +16,88 @@ func (worldId WorldID) PreciseCastShape(origin Pos, proxy *ShapeProxy, translati
 	padding := float32(4 * fltEpsilon * MaxFloat(1, MaxFloat(AbsFloat(origin.X), MaxFloat(AbsFloat(origin.Y), AbsFloat(origin.Z)))))
 	worldBounds.LowerBound = Sub(worldBounds.LowerBound, Vec3{padding, padding, padding})
 	worldBounds.UpperBound = Add(worldBounds.UpperBound, Vec3{padding, padding, padding})
-	valid := true
-	maxFraction := float32(1)
-	stats := worldId.OverlapAABB(worldBounds, filter, func(id ShapeID, _ any) bool {
-		s, transform, ok := queryShape(id, origin)
-		if !ok {
-			valid = false
-			return false
+	c := preciseCastScratch.get()
+	if c.visit == nil {
+		c.visit = c.visitLeaf
+	}
+	c.origin, c.proxy, c.translation = origin, proxy, translation
+	c.filter, c.tolerance, c.bounds = filter, tolerance, bounds
+	c.callback, c.context, c.valid, c.maxFraction = callback, context, true, 1
+	defer releasePreciseCast(c)
+	stats := worldId.OverlapAABB(worldBounds, filter, preciseCastCandidate, c)
+	return stats, c.valid
+}
+
+type preciseCastContext struct {
+	origin      Pos
+	proxy       *ShapeProxy
+	translation Vec3
+	filter      QueryFilter
+	tolerance   float32
+	bounds      AABB
+	callback    CastResultFcn
+	context     any
+	valid       bool
+	maxFraction float32
+	best        CastOutput
+	child       int32
+	visit       func(queryLeaf)
+}
+
+var preciseCastScratch scratchPool[preciseCastContext]
+
+func preciseCastCandidate(id ShapeID, context any) bool {
+	c := context.(*preciseCastContext)
+	s, transform, ok := queryShape(id, c.origin)
+	if !ok {
+		c.valid = false
+		return false
+	}
+	c.best, c.child = CastOutput{Fraction: 1, TriangleIndex: -1}, -1
+	visitQueryGeometry(s, transform, c.bounds, c.visit)
+	if !c.valid {
+		return false
+	}
+	if c.best.Hit && c.best.Fraction <= c.maxFraction {
+		material := getShapeUserMaterialId(s, int(c.child), int(c.best.TriangleIndex))
+		fraction := c.callback(id, OffsetPos(c.origin, c.best.Point), c.best.Normal, c.best.Fraction, material, int(c.best.TriangleIndex), int(c.child), c.context)
+		if fraction > 0 && fraction < c.maxFraction {
+			c.maxFraction = fraction
 		}
-		best := CastOutput{Fraction: 1, TriangleIndex: -1}
-		child := int32(-1)
-		visitQueryGeometry(s, transform, bounds, func(leaf queryLeaf) {
-			if !valid {
-				return
-			}
-			out, ok := preciseLeafCast(leaf, proxy, translation, tolerance)
-			if !ok {
-				valid = false
-				return
-			}
-			if !out.Hit {
-				return
-			}
-			if leaf.triangleIndex >= 0 && !filter.BackFaces {
-				normal := RotateVector(leaf.transform.Q, Normalize(Cross(Sub(leaf.triangle[1], leaf.triangle[0]), Sub(leaf.triangle[2], leaf.triangle[0]))))
-				if Dot(normal, out.Normal) < -fltEpsilon {
-					return
-				}
-			}
-			if !best.Hit || out.Fraction < best.Fraction || out.Fraction == best.Fraction && (leaf.child < child || leaf.child == child && leaf.triangleIndex < best.TriangleIndex) {
-				best = out
-				best.TriangleIndex = leaf.triangleIndex
-				child = leaf.child
-			}
-		})
-		if !valid {
-			return false
+		return fraction != 0
+	}
+	return true
+}
+
+func (c *preciseCastContext) visitLeaf(leaf queryLeaf) {
+	if !c.valid {
+		return
+	}
+	out, ok := preciseLeafCast(leaf, c.proxy, c.translation, c.tolerance)
+	if !ok {
+		c.valid = false
+		return
+	}
+	if !out.Hit {
+		return
+	}
+	if leaf.triangleIndex >= 0 && !c.filter.BackFaces {
+		normal := RotateVector(leaf.transform.Q, Normalize(Cross(Sub(leaf.triangle[1], leaf.triangle[0]), Sub(leaf.triangle[2], leaf.triangle[0]))))
+		if Dot(normal, out.Normal) < -fltEpsilon {
+			return
 		}
-		if best.Hit && best.Fraction <= maxFraction {
-			material := getShapeUserMaterialId(s, int(child), int(best.TriangleIndex))
-			fraction := callback(id, OffsetPos(origin, best.Point), best.Normal, best.Fraction, material, int(best.TriangleIndex), int(child), context)
-			if fraction > 0 && fraction < maxFraction {
-				maxFraction = fraction
-			}
-			return fraction != 0
-		}
-		return true
-	}, nil)
-	return stats, valid
+	}
+	if !c.best.Hit || out.Fraction < c.best.Fraction || out.Fraction == c.best.Fraction && (leaf.child < c.child || leaf.child == c.child && leaf.triangleIndex < c.best.TriangleIndex) {
+		c.best = out
+		c.best.TriangleIndex = leaf.triangleIndex
+		c.child = leaf.child
+	}
+}
+
+func releasePreciseCast(c *preciseCastContext) {
+	visit := c.visit
+	*c = preciseCastContext{visit: visit}
+	preciseCastScratch.put(c)
 }
 
 func validPreciseProxy(proxy *ShapeProxy) bool {

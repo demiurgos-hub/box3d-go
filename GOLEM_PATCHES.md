@@ -133,3 +133,22 @@ golden/determinism suite and no-FMA compile guard pass under Go 1.27.1. The exis
 `GOEXPERIMENT=simd -tags box3d_simd` backend also passed its upstream suite before
 this specialization; build experiments and target CPU requirements must remain
 explicit in qualification manifests. No workload performance pass is implied.
+
+## Query scratch and deepest-contact reduction
+
+`ShapeID.ProxyPenetrationDeepest` returns the first deepest result in the existing
+`ProxyPenetrations` traversal order, including exact touching and one-sided
+backface behavior. It retains one result even when a dense mesh produces many
+contacts; callers do not allocate and retry an all-contact buffer. Both APIs use
+the same collision/manifold path. Convex proxy cooking and internal geometry
+traversal can still allocate; this is not an allocation-free query guarantee.
+
+Proxy penetration and precise world casts now pool per-call callback state,
+clearing caller references before returning it. The cast leaf math, candidate
+ordering, child/triangle tie ordering, callback clipping and failure semantics
+are unchanged. Each nested or concurrent reader owns separate scratch state.
+Regressions compare sphere/capsule/hull deepest results against overflowing
+dense-mesh contact lists, exact touch/gap/penetration, backfaces, invalid inputs,
+reentrant clipping callbacks and concurrent readers. Qualification must still
+measure the complete current source; no timing or release pass follows from
+these allocation changes alone.

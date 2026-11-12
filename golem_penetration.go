@@ -85,48 +85,14 @@ func (id ShapeID) PairPenetration(other ShapeID) (PairPenetrationResult, bool) {
 // for this call. Rounded hulls and lower-dimensional point clouds return false.
 // Cooking can allocate; persistent convex queries should use PairPenetration.
 func (id ShapeID) ProxyPenetrations(origin Pos, proxy *ShapeProxy, backFaces bool, dst []CapsulePenetration) (written, total int, valid bool) {
-	s, transform, valid := queryShape(id, origin)
-	if !valid || proxy == nil || proxy.Count <= 0 || int(proxy.Count) > len(proxy.Points) || proxy.Count > MaxShapeCastPoints ||
-		!IsValidFloat(proxy.Radius) || proxy.Radius < 0 {
+	context, transform, valid := id.prepareProxyPenetration(origin, proxy, backFaces)
+	if !valid {
 		return 0, 0, false
 	}
-	for _, p := range proxy.Points[:proxy.Count] {
-		if !IsValidVec3(p) {
-			return 0, 0, false
-		}
-	}
-	query := queryLeaf{transform: TransformIdentity, child: -1, triangleIndex: -1}
-	if proxy.Count <= 2 && proxy.Radius > 0 {
-		if proxy.Count == 1 || proxy.Points[0] == proxy.Points[1] {
-			query.kind, query.sphere = SphereShape, Sphere{proxy.Points[0], proxy.Radius}
-		} else {
-			query.kind, query.capsule = CapsuleShape, Capsule{proxy.Points[0], proxy.Points[1], proxy.Radius}
-		}
-	} else if proxy.Count >= 4 && proxy.Radius == 0 {
-		query.kind = HullShape
-		query.hull = CreateHull(proxy.Points[:proxy.Count], int(proxy.Count), MaxHullVertices)
-		if query.hull == nil {
-			return 0, 0, false
-		}
-		defer DestroyHull(query.hull)
-	} else {
-		return 0, 0, false
-	}
-	visitQueryGeometry(s, transform, queryLeafBounds(query), func(leaf queryLeaf) {
-		collideQueryLeaves(leaf, query, backFaces, func(point, normal Vec3, separation float32, fa, _ uint32) {
-			if separation > 0 {
-				return
-			}
-			if written < len(dst) {
-				dst[written] = CapsulePenetration{Point: OffsetPos(origin, point), Normal: normal, Depth: -separation,
-					Feature:    QueryFeature{leaf.child, leaf.triangleIndex, fa},
-					MaterialID: getShapeUserMaterialId(s, int(leaf.child), int(leaf.triangleIndex))}
-				written++
-			}
-			total++
-		})
-	})
-	return written, total, true
+	defer releaseProxyPenetration(context)
+	context.dst = dst
+	visitQueryGeometry(context.shape, transform, queryLeafBounds(context.query), context.visit)
+	return context.written, context.total, true
 }
 
 func queryPairFeatureLess(a, b, c, d QueryFeature) bool {
