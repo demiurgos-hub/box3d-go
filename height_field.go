@@ -134,31 +134,45 @@ func CreateHeightField(data *HeightFieldDef) *HeightFieldData {
 	if data.ClockwiseWinding {
 		hf.Clockwise = 1
 	}
+	if data.MainDiagonal {
+		hf.Diagonal = 1
+	}
 
 	compressedHeights := blobSlice[uint16](unsafe.Pointer(hf), int32(heightsOffset), heightCount)
 	materialIndices := blobSlice[uint8](unsafe.Pointer(hf), int32(materialOffset), cellCount)
 	flags := blobSlice[uint8](unsafe.Pointer(hf), int32(flagsOffset), triangleCount)
 
 	heights := data.Heights
+	var lowerHeightBound, upperHeightBound float32
 
-	assert(data.GlobalMinimumHeight <= data.GlobalMaximumHeight, "data->globalMinimumHeight <= data->globalMaximumHeight")
-	hf.MinHeight = data.GlobalMinimumHeight
-	hf.MaxHeight = data.GlobalMaximumHeight
+	if data.CompressedHeights != nil {
+		// GOLEM: explicit quantization stores caller samples verbatim.
+		assert(len(data.CompressedHeights) == heightCount, "len(data.CompressedHeights) == heightCount")
+		assert(data.HeightStep > 0.0 && IsValidFloat(data.HeightStep), "data.HeightStep > 0")
+		copy(compressedHeights, data.CompressedHeights)
+		hf.MinHeight = data.GlobalMinimumHeight
+		hf.HeightScale = data.HeightStep
+		hf.MaxHeight = mulAdd(hf.MinHeight, hf.HeightScale, float32(math.MaxUint16))
+	} else {
+		assert(data.GlobalMinimumHeight <= data.GlobalMaximumHeight, "data->globalMinimumHeight <= data->globalMaximumHeight")
+		hf.MinHeight = data.GlobalMinimumHeight
+		hf.MaxHeight = data.GlobalMaximumHeight
 
-	height := MaxFloat(hf.MaxHeight-hf.MinHeight, LinearSlop())
-	hf.HeightScale = height / math.MaxUint16
+		height := MaxFloat(hf.MaxHeight-hf.MinHeight, LinearSlop())
+		hf.HeightScale = height / math.MaxUint16
 
-	lowerHeightBound := hf.MaxHeight
-	upperHeightBound := hf.MinHeight
+		lowerHeightBound = hf.MaxHeight
+		upperHeightBound = hf.MinHeight
 
-	invHeightScale := 1.0 / hf.HeightScale
-	for i := range heightCount {
-		clampedHeight := ClampFloat(heights[i], hf.MinHeight, hf.MaxHeight)
-		scaledHeight := (clampedHeight - hf.MinHeight) * invHeightScale
-		compressedHeights[i] = uint16(MinFloat(scaledHeight, float32(math.MaxUint16)))
+		invHeightScale := 1.0 / hf.HeightScale
+		for i := range heightCount {
+			clampedHeight := ClampFloat(heights[i], hf.MinHeight, hf.MaxHeight)
+			scaledHeight := (clampedHeight - hf.MinHeight) * invHeightScale
+			compressedHeights[i] = uint16(MinFloat(scaledHeight, float32(math.MaxUint16)))
 
-		lowerHeightBound = MinFloat(lowerHeightBound, clampedHeight)
-		upperHeightBound = MaxFloat(upperHeightBound, clampedHeight)
+			lowerHeightBound = MinFloat(lowerHeightBound, clampedHeight)
+			upperHeightBound = MaxFloat(upperHeightBound, clampedHeight)
+		}
 	}
 
 	// Use decompressed heights for accurate convexity metrics.
@@ -167,6 +181,13 @@ func CreateHeightField(data *HeightFieldDef) *HeightFieldData {
 		decompressedHeights[i] = mulAdd(hf.MinHeight, hf.HeightScale, float32(compressedHeights[i]))
 	}
 	heights = decompressedHeights
+	if data.CompressedHeights != nil {
+		lowerHeightBound, upperHeightBound = heights[0], heights[0]
+		for _, h := range heights {
+			lowerHeightBound = MinFloat(lowerHeightBound, h)
+			upperHeightBound = MaxFloat(upperHeightBound, h)
+		}
+	}
 
 	if data.MaterialIndices != nil {
 		for i := range cellCount {
@@ -184,6 +205,13 @@ func CreateHeightField(data *HeightFieldDef) *HeightFieldData {
 
 	var cos5Deg float32 = 0.9962
 	scale := hf.Scale
+
+	if hf.Diagonal != 0 {
+		computeHeightFieldFlags(hf, heights, materialIndices, flags, cos5Deg)
+		hf.Hash = 0
+		hf.Hash = hash64NonZero(heightFieldBytes(hf))
+		return hf
+	}
 
 	triangleIndex := 0
 	for row := 0; row < rowCount-1; row++ {
@@ -457,11 +485,97 @@ const (
 	_ uint = uint(4*InverseConcaveEdge1 - InverseConcaveEdge3)
 )
 
+// heightFieldCellIndices returns a cell's grid indices labelled 11, 12, 21, 22
+// as used throughout this file: triangle 0 is (11, 21, 12), triangle 1 is
+// (22, 12, 21), and their shared 21-12 edge is the split diagonal.
+// GOLEM: the main diagonal relabels the cell by a quarter turn so that edge
+// joins (column, row) and (column + 1, row + 1) at every triangle site.
+func heightFieldCellIndices(hf *HeightFieldData, row, column int) (index11, index12, index21, index22 int) {
+	columnCount := int(hf.ColumnCount)
+	index11 = row*columnCount + column
+	index12 = index11 + 1
+	index21 = (row+1)*columnCount + column
+	index22 = index21 + 1
+	if hf.Diagonal != 0 {
+		index11, index12, index21, index22 = index21, index11, index22, index12
+	}
+	return
+}
+
+// computeHeightFieldFlags derives edge concavity for any cell labelling by
+// matching shared grid edges, using the upstream separation and angle tests.
+func computeHeightFieldFlags(hf *HeightFieldData, heights []float32, materials, flags []uint8, cos5Deg float32) {
+	columnCount, rowCount := int(hf.ColumnCount), int(hf.RowCount)
+	point := func(index int) Vec3 {
+		return Mul(hf.Scale, Vec3{float32(index % columnCount), heights[index], float32(index / columnCount)})
+	}
+	triangle := func(row, column, which int) [3]int {
+		i11, i12, i21, i22 := heightFieldCellIndices(hf, row, column)
+		if which == 0 {
+			return [3]int{i11, i21, i12}
+		}
+		return [3]int{i22, i12, i21}
+	}
+	concave := [3]int{int(ConcaveEdge1), int(ConcaveEdge2), int(ConcaveEdge3)}
+	inverse := [3]int{int(InverseConcaveEdge1), int(InverseConcaveEdge2), int(InverseConcaveEdge3)}
+	for row := 0; row < rowCount-1; row++ {
+		for column := 0; column < columnCount-1; column++ {
+			cell := row*(columnCount-1) + column
+			if materials[cell] == HeightFieldHole {
+				continue
+			}
+			for which := 0; which < 2; which++ {
+				vertices := triangle(row, column, which)
+				plane := makePlaneFromPoints(point(vertices[0]), point(vertices[1]), point(vertices[2]))
+				value := 0
+				for edge := 0; edge < 3; edge++ {
+					a, b := vertices[edge], vertices[(edge+1)%3]
+					var neighbor [3]int
+					opposite, found := 0, false
+				search:
+					for _, cellOffset := range [5][2]int{{0, 0}, {-1, 0}, {1, 0}, {0, -1}, {0, 1}} {
+						r, c := row+cellOffset[0], column+cellOffset[1]
+						if r < 0 || c < 0 || r >= rowCount-1 || c >= columnCount-1 || materials[r*(columnCount-1)+c] == HeightFieldHole {
+							continue
+						}
+						for other := 0; other < 2; other++ {
+							if r == row && c == column && other == which {
+								continue
+							}
+							t := triangle(r, c, other)
+							for k := 0; k < 3; k++ {
+								if t[k] == b && t[(k+1)%3] == a {
+									neighbor, opposite, found = t, t[(k+2)%3], true
+									break search
+								}
+							}
+						}
+					}
+					if !found {
+						continue
+					}
+					n := Normalize(Cross(Sub(point(neighbor[1]), point(neighbor[0])), Sub(point(neighbor[2]), point(neighbor[0]))))
+					separation := planeSeparation(plane, point(opposite))
+					cosAngle := Dot(plane.Normal, n)
+					if separation > 0.0 || cosAngle > cos5Deg {
+						value |= concave[edge]
+					}
+					if separation < 0.0 || cosAngle > cos5Deg {
+						value |= inverse[edge]
+					}
+				}
+				flags[2*cell+which] = uint8(value)
+			}
+		}
+	}
+}
+
 // getHeightFieldCellCorners is b3GetHeightFieldCellCorners.
 // Decode the four corner vertices of a height field cell into local space.
 // Output order matches the index naming used throughout this file:
-// corners[0] = (column, row), corners[1] = (column + 1, row),
-// corners[2] = (column, row + 1), corners[3] = (column + 1, row + 1).
+// corners[0] = 11, corners[1] = 12, corners[2] = 21, corners[3] = 22. Without
+// the main diagonal these are (column, row), (column + 1, row),
+// (column, row + 1) and (column + 1, row + 1).
 func getHeightFieldCellCorners(hf *HeightFieldData, row, column int, corners *[4]Vec3) {
 	assert(0 <= row && row < int(hf.RowCount)-1 && 0 <= column && column < int(hf.ColumnCount)-1,
 		"0 <= row && row < hf->rowCount - 1 && 0 <= column && column < hf->columnCount - 1")
@@ -491,6 +605,9 @@ func getHeightFieldCellCorners(hf *HeightFieldData, row, column int, corners *[4
 	corners[1] = Mul(scale, Vec3{x2, height12, z1})
 	corners[2] = Mul(scale, Vec3{x1, height21, z2})
 	corners[3] = Mul(scale, Vec3{x2, height22, z2})
+	if hf.Diagonal != 0 {
+		corners[0], corners[1], corners[2], corners[3] = corners[2], corners[0], corners[3], corners[1]
+	}
 }
 
 // getHeightFieldTriangle is b3GetHeightFieldTriangle.
@@ -507,10 +624,7 @@ func getHeightFieldTriangle(heightField *HeightFieldData, triangleIndex int) tri
 	row := quadIndex / (columnCount - 1)
 	column := quadIndex - row*(columnCount-1)
 
-	index11 := row*columnCount + column
-	index12 := index11 + 1
-	index21 := (row+1)*columnCount + column
-	index22 := index21 + 1
+	index11, index12, index21, index22 := heightFieldCellIndices(heightField, row, column)
 
 	cellIndex := row*(columnCount-1) + column
 

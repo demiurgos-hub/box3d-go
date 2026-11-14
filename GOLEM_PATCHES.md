@@ -6,6 +6,31 @@ Original MIT attribution and port notes remain intact. This fork uses Go 1.27.1
 and float32 positions, geometry and simulation. It does not change default cast semantics
 or implement character pushing through manual impulses.
 
+## Height-field main diagonal and explicit quantization
+
+`HeightFieldDef.MainDiagonal` splits every cell along its
+`(column, row)-(column + 1, row + 1)` diagonal instead of upstream's fixed
+`(column + 1, row)-(column, row + 1)` split. The choice is stored in
+`HeightFieldData.Diagonal`, which occupies former padding, so the blob size,
+`HeightFieldVersion` and hashes of upstream-layout fields are unchanged. All
+triangle sites (triangle lookup, ray and shape casts, overlap, triangle queries
+and the mover) share one quarter-turn relabelling of the cell corners, so the
+shared diagonal remains triangle edge 2 and clockwise winding keeps its
+meaning. Edge concavity for the main diagonal is derived by a general
+shared-edge pass using the upstream separation and 5-degree tests; the upstream
+loop remains in use for the default split.
+
+`HeightFieldDef.CompressedHeights` with a positive `HeightStep` stores caller
+samples verbatim instead of truncating authored floats against the global
+range. Each height is `GlobalMinimumHeight + HeightStep * sample`; bounds come
+from the decompressed samples. The text dump format does not carry either
+option.
+
+Focused tests check the main-diagonal triangle layout and edge numbering,
+verbatim samples, that the general flag pass reproduces upstream flags exactly
+for both windings, and that ray casts, sphere casts and overlaps on a holed
+main-diagonal field agree with an explicitly triangulated mesh within 1e-4 m.
+
 ## Precise query prefix pruning
 
 `PreciseCastShape` now uses the existing native dynamic-tree `BoxCast` traversal

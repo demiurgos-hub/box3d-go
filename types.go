@@ -2123,6 +2123,18 @@ type HeightFieldDef struct {
 
 	// Use clock-wise winding. This effectively inverts the height-field along the y-axis.
 	ClockwiseWinding bool
+
+	// Split each cell along its (column, row)-(column + 1, row + 1) diagonal
+	// instead of the upstream (column + 1, row)-(column, row + 1) diagonal.
+	MainDiagonal bool
+
+	// Optional pre-quantized heights, one per grid point. When set, Heights is
+	// ignored and each height is exactly GlobalMinimumHeight + HeightStep * value;
+	// GlobalMaximumHeight is ignored. HeightStep must be positive.
+	CompressedHeights []uint16
+
+	// Quantization step for CompressedHeights, in unscaled space.
+	HeightStep float32
 }
 
 // HeightFieldHole is the material index used to designate holes in a height field.
@@ -2179,8 +2191,12 @@ type HeightFieldData struct {
 	// Triangle winding.
 	Clockwise uint8
 
+	// Nonzero when cells split along the (column, row)-(column + 1, row + 1) diagonal.
+	// It occupies former padding, so upstream blobs keep their layout and hash.
+	Diagonal uint8
+
 	// Explicit padding.
-	Padding [7]uint8
+	Padding [6]uint8
 }
 
 // Compound
